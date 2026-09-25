@@ -53,6 +53,28 @@ function groupByFile(sources) {
     }
   });
 
+  // 组内按在原文中的先后排。
+  //
+  // 检索结果本身是按相关性距离返回的，直接渲染会出现
+  // 「第 2 块」排在「第 1 块」前面 —— 读起来像顺序错了。
+  // 文件之间仍然保持相关性顺序（最相关的文件排最前），
+  // 只把同一个文件内部的片段排回文档顺序
+  groups.forEach((group) => {
+
+    group.chunks.sort((a, b) => {
+
+      const left = typeof a.chunk_index === "number"
+        ? a.chunk_index
+        : Number.MAX_SAFE_INTEGER;
+
+      const right = typeof b.chunk_index === "number"
+        ? b.chunk_index
+        : Number.MAX_SAFE_INTEGER;
+
+      return left - right;
+    });
+  });
+
   return groups;
 }
 
