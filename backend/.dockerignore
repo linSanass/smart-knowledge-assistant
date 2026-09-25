@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 密钥只通过 compose 的 environment / env_file 注入，不进镜像
+.env
+
+# 上传的 PDF 用 volume 挂载，不打进镜像
+uploads/
+
+.venv/
+venv/

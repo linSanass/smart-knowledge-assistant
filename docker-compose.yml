@@ -1,0 +1,105 @@
+services:
+
+  # =========================
+  # MySQL
+  # =========================
+
+  mysql:
+    image: mysql:8.4
+
+    environment:
+      # 本地开发默认值，生产请用 .env 覆盖（见 .env.example）
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-devpassword}
+      MYSQL_DATABASE: smart_ai_assistant
+
+    # 刻意不映射到宿主机：本机开发用的 MySQL 已经占了 3306，
+    # 映射出来会直接端口冲突。backend 走 compose 网络用服务名访问
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # =========================
+  # Redis
+  # =========================
+
+  redis:
+    image: redis:7-alpine
+
+    # 同样不映射端口：本机 6379 上已经有 Redis 在跑。
+    # 缓存本来就是可降级的，这里也不做持久化
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # =========================
+  # Backend
+  # =========================
+
+  backend:
+    build: ./backend
+
+    # DEEPSEEK_API_KEY 从这里读。文件不存在时不报错，
+    # 方便先起来看服务编排是否正常
+    env_file:
+      - path: ./backend/.env
+        required: false
+
+    environment:
+      # 覆盖 .env 里的 127.0.0.1：容器内必须用服务名
+      DATABASE_URL: >-
+        mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-devpassword}@mysql:3306/smart_ai_assistant?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+
+    ports:
+      # 浏览器直接访问 backend，所以这个端口要暴露给宿主机
+      - "8000:8000"
+
+    volumes:
+      # PDF 落在宿主机上，容器重建不丢，也方便直接看文件
+      - ./backend/uploads:/app/uploads
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/documents/status')"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # 启动要加载 embedding 模型，给足时间
+      start_period: 60s
+
+  # =========================
+  # Frontend
+  # =========================
+
+  frontend:
+    build: ./frontend
+
+    ports:
+      # 宿主机 5173 -> 容器 80。
+      # 必须是 5173：backend 的 CORS 白名单就是 localhost:5173
+      - "5173:80"
+
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
