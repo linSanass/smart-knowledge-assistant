@@ -113,8 +113,13 @@ function App() {
   const [indexStatus, setIndexStatus] = useState({
     built: false,
     chunk_count: 0,
-    documents: 0
+    documents: 0,
+    building: false,
+    finished_at: null
   });
+
+  // 非 null 表示「已经触发构建、正等它结束」，from 是触发时的 finished_at
+  const [buildWatch, setBuildWatch] = useState(null);
 
   const messageBoxRef = useRef(null);
 
@@ -122,6 +127,9 @@ function App() {
   const conversationsSeq = useRef(0);
 
   const knowledgeSeq = useRef(0);
+
+  // 轮询次数，防止文档一直卡在 pending 时无限轮询
+  const pollCount = useRef(0);
 
   // 加载会话列表
   const refreshConversations = async () => {
@@ -196,6 +204,60 @@ function App() {
 
   }, [messages]);
 
+  // 后台构建期间需要轮询：索引状态和每个文档的状态都在变
+  const hasUnsettledDocs = documents.some(
+    (doc) => doc.status === "pending" || doc.status === "processing"
+  );
+
+  // 盯梢中：构建已触发，但还没观测到「新一轮真的跑完了」。
+  // 不能只看 building 字段——请求返回时后台任务可能还没开始，
+  // 服务端会返回 building=false，那会让轮询立刻停掉、界面卡住不动。
+  // 所以用触发时的 finished_at 做判据：它变了才说明这一轮结束了
+  const watchingBuild =
+    buildWatch !== null &&
+    (
+      indexStatus.building ||
+      indexStatus.finished_at === buildWatch.from
+    );
+
+  const shouldPoll =
+    indexStatus.building || hasUnsettledDocs || watchingBuild;
+
+  useEffect(() => {
+
+    if (!shouldPoll) {
+
+      pollCount.current = 0;
+
+      return;
+    }
+
+    const timer = setInterval(() => {
+
+      // 兜底：文档一直卡在 pending（例如旧 /upload 接口建的）时不要无限轮询
+      if (++pollCount.current > 40) {
+
+        clearInterval(timer);
+
+        return;
+      }
+
+      refreshKnowledge().catch(() => {});
+
+    }, 1500);
+
+    return () => clearInterval(timer);
+
+  }, [shouldPoll]);
+
+  // 触发构建前调用：记下当前收尾时间
+  const watchBuild = () => {
+
+    setBuildWatch({ from: indexStatus.finished_at });
+
+    pollCount.current = 0;
+  };
+
   // 新建会话
   const handleNewConversation = async () => {
 
@@ -258,9 +320,12 @@ function App() {
 
       setPdfFiles([]);
 
+      // 上传已经自动排队构建，进入盯梢状态
+      watchBuild();
+
       await refreshKnowledge();
 
-      alert(`成功上传 ${uploaded} 个PDF，请点击「构建知识库」`);
+      alert(`成功上传 ${uploaded} 个PDF，正在后台构建知识库`);
 
     } catch (error) {
 
@@ -275,7 +340,10 @@ function App() {
 
     try {
 
-      await deleteDocument(id);
+      const data = await deleteDocument(id);
+
+      // 删除会触发后台重建索引，跟着轮询
+      if (data.index_rebuild_scheduled) watchBuild();
 
       await refreshKnowledge();
 
@@ -285,30 +353,27 @@ function App() {
     }
   };
 
-  // 构建 / 重建知识库
+  // 构建 / 重建知识库：只负责排队，结果靠轮询观察
   const handleBuildRag = async () => {
 
     try {
 
-      const data = await buildRag();
+      await buildRag();
 
-      await refreshKnowledge();
-
-      if (data.chunk_count === 0) {
-
-        alert(data.message);
-
-        return;
-      }
-
-      alert(
-        `知识库构建完成：${data.documents} 个文档，` +
-        `共 ${data.chunk_count} 个 Chunk`
-      );
+      watchBuild();
 
     } catch (error) {
 
-      alert("构建失败: " + error.message);
+      alert(error.message);
+
+      // 409 = 已经有一次构建在跑，跟着它一起轮询，
+      // 而不是让用户以为这次点击彻底失败了
+      if (error.status === 409) {
+
+        watchBuild();
+
+        await refreshKnowledge().catch(() => {});
+      }
     }
   };
 
@@ -516,9 +581,10 @@ function App() {
 
               <button
                 onClick={handleBuildRag}
+                disabled={indexStatus.building}
                 style={{ marginLeft: "10px" }}
               >
-                构建知识库
+                {indexStatus.building ? "构建中..." : "构建知识库"}
               </button>
             </div>
 
@@ -526,13 +592,32 @@ function App() {
               style={{
                 marginTop: "8px",
                 fontSize: "13px",
-                color: indexStatus.built ? "#7ddc7d" : "#999"
+                color: indexStatus.building
+                  ? "#ffd479"
+                  : indexStatus.built
+                    ? "#7ddc7d"
+                    : "#999"
               }}
             >
               {
-                indexStatus.built
-                  ? `索引已构建：${indexStatus.documents} 个文档 / ${indexStatus.chunk_count} 个 Chunk`
-                  : "索引未构建"
+                indexStatus.building
+                  ? "索引构建中..."
+                  : indexStatus.built
+                    ? `索引已构建：${indexStatus.documents} 个文档 / ${indexStatus.chunk_count} 个 Chunk`
+                    : "索引未构建"
+              }
+
+              {
+                indexStatus.last_error && (
+                  <span
+                    style={{
+                      color: "#ff7b7b",
+                      marginLeft: "8px"
+                    }}
+                  >
+                    上次构建失败：{indexStatus.last_error}
+                  </span>
+                )
               }
             </div>
 
@@ -572,7 +657,9 @@ function App() {
                             ? "#7ddc7d"
                             : doc.status === "failed"
                               ? "#ff7b7b"
-                              : "#ddd"
+                              : doc.status === "processing"
+                                ? "#ffd479"
+                                : "#ddd"
                       }}
                     >
                       {
@@ -580,7 +667,9 @@ function App() {
                           ? `${doc.chunk_count} chunks`
                           : doc.status === "failed"
                             ? `失败: ${doc.error || ""}`
-                            : "待索引"
+                            : doc.status === "processing"
+                              ? "处理中..."
+                              : "待索引"
                       }
                     </span>
 

@@ -21,6 +21,8 @@ sys.path.insert(
 
 from fastapi.testclient import TestClient
 
+from helpers import ensure_index
+
 from main import app
 
 
@@ -125,14 +127,9 @@ def main():
     # 5. rag 模式发送消息
     # =========================
 
-    # FAISS 索引是进程内内存态，测试进程需要先构建
-    resp = client.get("/build-rag")
-
-    assert resp.status_code == 200
-
-    assert resp.json()["chunk_count"] > 0, (
-        "知识库为空，请先确认 backend/uploads 下有 PDF"
-    )
+    # FAISS 索引是进程内内存态，测试进程需要先构建。
+    # 构建已异步化：只保证索引可用，结果从 /documents/status 读
+    ensure_index(client)
 
     resp = client.post(
         f"/conversations/{conversation_id}/messages",

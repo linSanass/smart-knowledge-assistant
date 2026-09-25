@@ -143,6 +143,56 @@ def mark_failed(
     return document
 
 
+def mark_processing(db, documents):
+    """
+    把还没解析成功的文档标成 processing。
+
+    让前端的文档列表在后台构建期间显示「处理中」，
+    而不是一直停在「待索引」。
+    """
+
+    changed = 0
+
+    for document in documents:
+
+        if document.status in ("pending", "failed"):
+
+            document.status = "processing"
+
+            changed += 1
+
+    if changed:
+
+        db.commit()
+
+    return changed
+
+
+def reset_processing(db):
+    """
+    把卡在 processing 的文档退回 pending。
+
+    构建中途崩溃时，这些文档既没 ready 也没 failed，
+    不重置的话前端会永远显示「处理中」。
+    """
+
+    stuck = (
+        db.query(Document)
+        .filter(Document.status == "processing")
+        .all()
+    )
+
+    for document in stuck:
+
+        document.status = "pending"
+
+    if stuck:
+
+        db.commit()
+
+    return len(stuck)
+
+
 # =========================
 # 删除
 # =========================

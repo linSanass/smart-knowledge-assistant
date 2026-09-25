@@ -24,6 +24,8 @@ sys.path.insert(
 
 from fastapi.testclient import TestClient
 
+from helpers import wait_idle
+
 from services import pdf_service
 
 
@@ -153,9 +155,19 @@ def main():
             }
         )
 
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 202, resp.text
 
-        alpha_id = resp.json()["document"]["id"]
+        alpha = resp.json()
+
+        alpha_id = alpha["document"]["id"]
+
+        # 上传接口本身不解析：响应体里文档还是 pending，
+        # 并且明确告知构建已排队。这条断言替代了原来
+        # 「列表里 status 全是 pending」——因为 TestClient 会等后台任务跑完，
+        # 那条断言在这里已经不可能成立，留着就是假测试。
+        assert alpha["document"]["status"] == "pending", alpha
+
+        assert alpha["build_scheduled"] is True, alpha
 
         resp = client.post(
             "/documents",
@@ -164,11 +176,11 @@ def main():
             }
         )
 
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 202, resp.text
 
         beta_id = resp.json()["document"]["id"]
 
-        print("[OK] 上传两个 PDF")
+        print("[OK] 上传两个 PDF（202 + 后台构建已排队）")
 
         # =========================
         # 2. 列表
@@ -189,8 +201,13 @@ def main():
 
         assert names == {"alpha.pdf", "beta.pdf"}, names
 
+        # 这里不再断言 status == "pending"。
+        # TestClient 会等后台任务跑完才返回，走到这行构建早已结束，
+        # 文档已经是 ready —— 继续断言 pending 会变成一条永远不成立的假测试。
+        # 「上传不同步解析」改由上面的上传响应体断言证明，
+        # 「构建进行中的真实中间态」由 test_async_documents.py 的闸门测试覆盖。
         assert all(
-            d["status"] == "pending"
+            d["status"] in ("pending", "processing", "ready", "failed")
             for d in docs
         ), docs
 
@@ -226,9 +243,14 @@ def main():
 
         resp = client.get("/build-rag")
 
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 202, resp.text
 
-        built = resp.json()
+        assert resp.json()["build_scheduled"] is True, resp.json()
+
+        # 构建结果不在触发响应里了，从状态接口读
+        wait_idle(client)
+
+        built = client.get("/documents/status").json()["last_result"]
 
         assert built["documents"] == 2, built
 
@@ -341,11 +363,14 @@ def main():
 
         result = resp.json()
 
-        assert result["index_rebuilt"] is True
+        # 异步后这个字段只表示「重建已排队」，不再是「已重建」
+        assert result["index_rebuild_scheduled"] is True, result
 
-        assert result["status"]["documents"] == 1, result
+        status = wait_idle(client)
 
-        print("[OK] 删除后索引重建:", result["status"])
+        assert status["documents"] == 1, status
+
+        print("[OK] 删除后索引重建:", status)
 
         resp = client.get("/documents")
 
@@ -393,9 +418,10 @@ def main():
 
         assert resp.status_code == 200
 
-        resp = client.get("/documents/status")
+        # 删除触发的重建也要等完，否则可能读到上一轮的旧状态
+        status = wait_idle(client)
 
-        assert resp.json()["built"] is False
+        assert status["built"] is False
 
         resp = client.post(
             "/rag-chat",

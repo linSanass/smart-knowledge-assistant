@@ -23,6 +23,8 @@ sys.path.insert(
 
 from fastapi.testclient import TestClient
 
+from helpers import ensure_index
+
 from services import prompts
 
 
@@ -79,13 +81,8 @@ def check_behavior():
 
     client = TestClient(app)
 
-    resp = client.get("/build-rag")
-
-    assert resp.status_code == 200, resp.text
-
-    assert resp.json()["chunk_count"] > 0, (
-        "知识库为空，请确认 backend/uploads 下有 PDF"
-    )
+    # 构建已异步化：只保证索引可用，结果从 /documents/status 读
+    ensure_index(client)
 
     # =========================
     # 1. 知识库内的问题：应该基于知识库回答

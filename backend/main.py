@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
 
 from fastapi import (
+    BackgroundTasks,
     Depends,
     FastAPI,
     File,
-    UploadFile
+    HTTPException,
+    UploadFile,
+    status
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -25,8 +28,9 @@ from services.pdf_service import (
     split_pdf
 )
 
+from services import rag_service
+
 from services.rag_service import (
-    build_vector_store,
     search_chunks,
     rag_chat
 )
@@ -259,10 +263,33 @@ def split_pdf_api():
 # 创建 RAG 向量数据库
 # =========================
 
-@app.get("/build-rag")
-def build_rag():
+@app.get(
+    "/build-rag",
+    status_code=status.HTTP_202_ACCEPTED
+)
+def build_rag(background_tasks: BackgroundTasks):
+    """
+    手动触发知识库构建（重建 / 重试入口）。
 
-    return build_vector_store()
+    真正的解析与 embedding 在后台跑，这个请求立即返回 202。
+    构建结果看 GET /documents/status 的 last_result / last_error。
+    """
+
+    # 已经在构建中就直接拒绝，避免两次构建同时改全局索引
+    if rag_service.is_building():
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="知识库正在构建中，请稍后再试"
+        )
+
+    background_tasks.add_task(rag_service.run_build_task)
+
+    return {
+        "message": "已开始后台构建知识库",
+        "build_scheduled": True,
+        "status": rag_service.get_index_status()
+    }
 
 
 # =========================

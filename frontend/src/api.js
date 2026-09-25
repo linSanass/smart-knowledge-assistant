@@ -22,7 +22,12 @@ async function request(path, options = {}) {
       // 响应不是 JSON，保留 statusText
     }
 
-    throw new Error(detail);
+    // 带上状态码：调用方据此区分「业务冲突」(如 409 构建中) 和真正的失败
+    const error = new Error(detail);
+
+    error.status = response.status;
+
+    throw error;
   }
 
   return response.json();

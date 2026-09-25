@@ -19,9 +19,15 @@ from openai import OpenAI
 
 from dotenv import load_dotenv
 
+from datetime import (
+    datetime,
+    timezone
+)
+
 import faiss
 import numpy as np
 import os
+import threading
 
 
 # =========================
@@ -68,6 +74,154 @@ faiss_index = None
 
 
 # =========================
+# 构建状态与并发控制
+# =========================
+
+# 后台构建跑在 Starlette 的线程池里，和 HTTP 请求线程并发访问上面两个全局变量。
+# 锁只保护「原子的成对读写」，绝不跨越 model.encode / FAISS 计算，
+# 所以不会把并发的构建串行化成一次大阻塞。
+_state_lock = threading.RLock()
+
+_build_state = {
+    "building": False,
+    "started_at": None,
+    "finished_at": None,
+    "last_result": None,
+    "last_error": None,
+
+    # 构建期间又来了一次请求：不打起来，只登记一次「完了再跑一遍」
+    "rebuild_requested": False
+}
+
+
+def _now():
+
+    # 和 models.utcnow 保持一致：naive UTC
+    return datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None).isoformat()
+
+
+def is_building():
+
+    with _state_lock:
+
+        return _build_state["building"]
+
+
+def _claim_or_request():
+    """
+    拿到构建权返回 True；已经有构建在跑就把重跑请求记下来并返回 False。
+
+    判断和登记必须在同一次加锁里完成，否则会出现丢更新：
+    请求方读到 building=True 后恰好构建方收尾并清空标记，
+    请求方再置位就没人消费了，刚上传的 PDF 会悄悄进不了索引。
+    """
+
+    with _state_lock:
+
+        if _build_state["building"]:
+
+            _build_state["rebuild_requested"] = True
+
+            return False
+
+        _build_state["building"] = True
+
+        _build_state["started_at"] = _now()
+
+        _build_state["finished_at"] = None
+
+        _build_state["last_error"] = None
+
+        _build_state["rebuild_requested"] = False
+
+        return True
+
+
+def run_build_task():
+    """
+    后台构建的统一入口。
+
+    单独抽出来是为了让接口只负责「排队」，不负责「什么时候构建」。
+    构建期间收到的新请求会在本轮结束后补跑一次，不丢上传。
+    """
+
+    if not _claim_or_request():
+
+        return
+
+    try:
+
+        while True:
+
+            try:
+
+                result = build_vector_store()
+
+            except Exception as error:
+
+                # 系统性失败（不是单个 PDF 坏）：记录，不再重试
+                with _state_lock:
+
+                    _build_state["last_error"] = str(error)[:1000]
+
+                    _build_state["last_result"] = None
+
+                break
+
+            with _state_lock:
+
+                _build_state["last_result"] = result
+
+                _build_state["last_error"] = None
+
+                if not _build_state["rebuild_requested"]:
+
+                    break
+
+                _build_state["rebuild_requested"] = False
+
+    finally:
+
+        # 必须放 finally：否则一次崩溃会让 building 永远为真，
+        # 之后所有构建都被 409 挡住
+        with _state_lock:
+
+            _build_state["building"] = False
+
+            _build_state["finished_at"] = _now()
+
+        # 构建崩在中途时会有文档卡在 processing，退回 pending 以便重试。
+        # 构建成功时这里通常是空操作（都已经是 ready / failed）
+        _cleanup_processing()
+
+
+def _cleanup_processing():
+
+    try:
+
+        db = SessionLocal()
+
+    except Exception:
+
+        return
+
+    try:
+
+        document_service.reset_processing(db)
+
+    except Exception:
+
+        # 收尾失败不应该盖掉本次构建的结果
+        pass
+
+    finally:
+
+        db.close()
+
+
+# =========================
 # 构建向量数据库
 # =========================
 
@@ -95,8 +249,10 @@ def build_vector_store():
 
             # 已经没有文档了，必须清空旧索引，
             # 否则被删除文件的 chunk 还会被检索到
-            chunks_store = []
-            faiss_index = None
+            with _state_lock:
+
+                chunks_store = []
+                faiss_index = None
 
             cache_service.invalidate()
 
@@ -105,6 +261,10 @@ def build_vector_store():
                 "chunk_count": 0,
                 "documents": 0
             }
+
+        # 先把待处理的文档标成 processing，前端就能显示「处理中」；
+        # 下面逐个解析完会立刻改成 ready / failed
+        document_service.mark_processing(db, documents)
 
         new_chunks = []
 
@@ -165,8 +325,10 @@ def build_vector_store():
         # 所有文件都失败：同样要清空旧索引，避免检索到已失效内容
         if not new_chunks:
 
-            chunks_store = []
-            faiss_index = None
+            with _state_lock:
+
+                chunks_store = []
+                faiss_index = None
 
             cache_service.invalidate()
 
@@ -212,9 +374,12 @@ def build_vector_store():
         # 5. 替换全局索引
         # =========================
 
-        chunks_store = new_chunks
+        # 一次成对替换：读方拿到的 chunks_store 和 faiss_index 必须来自同一轮构建
+        with _state_lock:
 
-        faiss_index = new_index
+            chunks_store = new_chunks
+
+            faiss_index = new_index
 
         # 索引变了，之前缓存的检索结果全部失效
         cache_service.invalidate()
@@ -236,14 +401,31 @@ def build_vector_store():
 # =========================
 
 def get_index_status():
+    """
+    索引状态，前端轮询这个接口。
+
+    built / chunk_count / documents 永远是最后一批成功构建的结果，
+    构建过程中的中间态放在 building 和 last_* 里。
+    """
+
+    with _state_lock:
+
+        index, store = faiss_index, chunks_store
+
+        state = dict(_build_state)
 
     return {
-        "built": faiss_index is not None,
-        "chunk_count": len(chunks_store),
+        "built": index is not None,
+        "chunk_count": len(store),
         "documents": len({
             c["document_id"]
-            for c in chunks_store
-        })
+            for c in store
+        }),
+        "building": state["building"],
+        "started_at": state["started_at"],
+        "finished_at": state["finished_at"],
+        "last_result": state["last_result"],
+        "last_error": state["last_error"]
     }
 
 
@@ -253,16 +435,20 @@ def get_index_status():
 
 def search_chunks(query, top_k=3):
 
-    global faiss_index
-    global chunks_store
+    # 成对取快照：构建线程是分两步替换全局变量的，
+    # 不加锁可能读到「新的 chunks_store + 旧的 faiss_index」，
+    # 那会把向量检索结果配上错误的原文，来源引用就错了。
+    with _state_lock:
+
+        index, store = faiss_index, chunks_store
 
     # 没有构建知识库
-    if faiss_index is None:
+    if index is None:
 
         return []
 
     # 没有文本块
-    if not chunks_store:
+    if not store:
 
         return []
 
@@ -283,9 +469,9 @@ def search_chunks(query, top_k=3):
     # 2. FAISS 搜索
     # =========================
 
-    distances, indices = faiss_index.search(
+    distances, indices = index.search(
         query_embedding,
-        min(top_k, len(chunks_store))
+        min(top_k, len(store))
     )
 
     # =========================
@@ -296,9 +482,9 @@ def search_chunks(query, top_k=3):
 
     for position, idx in enumerate(indices[0]):
 
-        if idx >= 0 and idx < len(chunks_store):
+        if idx >= 0 and idx < len(store):
 
-            chunk = chunks_store[idx]
+            chunk = store[idx]
 
             results.append({
                 "filename": chunk["filename"],
