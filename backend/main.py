@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from fastapi import UploadFile, File
 from pypdf import PdfReader
-
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import os
 
 # 读取.env
@@ -221,4 +221,47 @@ def read_pdf():
     return {
         "filename": pdf_files[-1],
         "content": text[:5000]
+    }
+
+@app.get("/split-pdf")
+def split_pdf():
+
+    upload_dir = "uploads"
+
+    pdf_files = [
+        f for f in os.listdir(upload_dir)
+        if f.endswith(".pdf")
+    ]
+
+    if len(pdf_files) == 0:
+        return {
+            "error": "没有找到PDF"
+        }
+
+    pdf_path = os.path.join(
+        upload_dir,
+        pdf_files[-1]
+    )
+
+    reader = PdfReader(pdf_path)
+
+    text = ""
+
+    for page in reader.pages:
+
+        page_text = page.extract_text()
+
+        if page_text:
+            text += page_text + "\n"
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100
+    )
+
+    chunks = splitter.split_text(text)
+
+    return {
+        "chunk_count": len(chunks),
+        "first_chunk": chunks[0]
     }
