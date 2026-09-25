@@ -20,7 +20,8 @@ from services.pdf_service import (
 
 from services.rag_service import (
     build_vector_store,
-    search_chunks
+    search_chunks,
+    rag_chat
 )
 
 app = FastAPI()
@@ -38,6 +39,10 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     role: str
+
+
+class RagRequest(BaseModel):
+    question: str
 
 
 @app.get("/")
@@ -135,4 +140,18 @@ def search(query: str):
 
     return {
         "result": result
+    }
+
+
+@app.post("/rag-chat")
+def rag_chat_api(
+    req: RagRequest
+):
+
+    answer = rag_chat(
+        req.question
+    )
+
+    return {
+        "answer": answer
     }
