@@ -18,6 +18,11 @@ from services.pdf_service import (
     split_pdf
 )
 
+from services.rag_service import (
+    build_vector_store,
+    search_chunks
+)
+
 app = FastAPI()
 
 # 跨域配置
@@ -121,3 +126,13 @@ def split_pdf_api():
 @app.get("/build-rag")
 def build_rag():
     return build_vector_store()
+
+
+@app.get("/search")
+def search(query: str):
+
+    result = search_chunks(query)
+
+    return {
+        "result": result
+    }
