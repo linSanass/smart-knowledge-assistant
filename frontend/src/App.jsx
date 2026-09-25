@@ -24,6 +24,12 @@ import KnowledgeDialog from "./components/KnowledgeDialog";
 import ConfirmDialog from "./components/ConfirmDialog";
 
 
+// 固定使用后端的默认人设。
+// 之前侧栏有个助手下拉框，但知识库就绪后走的是 rag 模式，
+// rag_chat 不接收 role，那个选择实际上从来没生效过，所以去掉了
+const DEFAULT_ROLE = "general";
+
+
 const EMPTY_INDEX_STATUS = {
   built: false,
   building: false,
@@ -41,8 +47,6 @@ function App() {
   const [messages, setMessages] = useState([]);
 
   const [message, setMessage] = useState("");
-
-  const [role, setRole] = useState("general");
 
   const [loading, setLoading] = useState(false);
 
@@ -492,11 +496,14 @@ function App() {
 
       setMessage("");
 
+      // 不再让用户选助手：知识库就绪后走 rag 模式，
+      // 而 rag_chat 压根不接收 role，选了也不起作用。
+      // 统一用后端的默认人设
       const data = await sendMessage(
         conversationId,
         text,
         autoMode,
-        role
+        DEFAULT_ROLE
       );
 
       setMessages((prev) => [
@@ -549,9 +556,6 @@ function App() {
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
         onDeleteConversation={handleDeleteConversation}
-
-        role={role}
-        onRoleChange={setRole}
 
         documents={documents}
         onDeleteDocument={(id) => requestDelete(

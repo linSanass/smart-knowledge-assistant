@@ -1,17 +1,6 @@
 import { STATUS_COLOR, STATUS_TEXT } from "../format";
 
 
-// 与后端 chat_service.roles 的键一一对应。
-// 只在本文件使用，所以不作 export —— 组件文件里导出常量会破坏 Fast Refresh
-const ROLE_OPTIONS = [
-  { value: "general", label: "通用助手" },
-  { value: "coding", label: "编程助手" },
-  { value: "translation", label: "翻译助手" },
-  { value: "writing", label: "写作助手" },
-  { value: "tutor", label: "学习导师" }
-];
-
-
 // PDF 与笔记用不同图标区分，其余展示完全一致
 const KIND_ICON = {
 
@@ -28,9 +17,6 @@ function Sidebar({
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
-
-  role,
-  onRoleChange,
 
   documents,
   onDeleteDocument,
@@ -141,31 +127,6 @@ function Sidebar({
             </div>
           )
         }
-
-      </div>
-
-
-      {/* 助手选择 */}
-      <div className="sidebar-label">助手</div>
-
-      <div className="sidebar-select-wrap">
-
-        <select
-          className="select"
-          value={role}
-          onChange={(event) => onRoleChange(event.target.value)}
-        >
-
-          {
-            ROLE_OPTIONS.map((option) => (
-
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))
-          }
-
-        </select>
 
       </div>
 

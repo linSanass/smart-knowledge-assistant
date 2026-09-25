@@ -34,7 +34,9 @@
   真正的创建发生在发出第一条消息时
 - **聊天历史**：消息持久化到 MySQL，切换会话可还原
 - **四种模式**，同一个接口按 `mode` 切换：
-  - `chat` —— 普通对话，带多角色 System Prompt
+  - `chat` —— 普通对话，带 System Prompt。后端准备了多套人设
+    （`chat_service.roles`），但前端固定用默认的 `general`、没有选择入口 ——
+    因为知识库就绪后走的是 `rag`，而 `rag_chat` 不接收 `role`，选了也不生效
   - `rag` —— 知识库问答，返回引用来源
   - `tools` —— Function Calling，单轮工具调用
   - `agent` —— 分步 Agent，多步调用工具直到得出答案
