@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
-
+from services.rag_service import (
+    build_vector_store
+)
 import os
 
 from services.chat_service import (
@@ -114,3 +116,8 @@ def read_pdf_api():
 def split_pdf_api():
 
     return split_pdf()
+
+
+@app.get("/build-rag")
+def build_rag():
+    return build_vector_store()
