@@ -6,8 +6,39 @@ function App() {
 
   const [role, setRole] = useState("unity");
 
+  const [pdfFile, setPdfFile] = useState(null);
+
   const [messages, setMessages] = useState([]);
 
+  // 上传PDF
+  const uploadPdf = async () => {
+
+    if (!pdfFile) {
+      alert("请选择PDF文件");
+      return;
+    }
+
+    const formData = new FormData();
+
+    formData.append(
+      "file",
+      pdfFile
+    );
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/upload",
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+
+    const data = await response.json();
+
+    alert(data.message);
+  };
+
+  // 发送消息
   const sendMessage = async () => {
 
     if (!message.trim()) return;
@@ -57,8 +88,10 @@ function App() {
         padding: "20px"
       }}
     >
+
       <h1>Smart Knowledge Assistant</h1>
 
+      {/* 角色选择 */}
       <select
         value={role}
         onChange={(e) => setRole(e.target.value)}
@@ -84,6 +117,31 @@ function App() {
         </option>
       </select>
 
+      <br />
+
+      {/* PDF上传 */}
+      <input
+        type="file"
+        accept=".pdf"
+        onChange={(e) => {
+          setPdfFile(
+            e.target.files[0]
+          );
+        }}
+      />
+
+      <button
+        onClick={uploadPdf}
+        style={{
+          marginLeft: "10px"
+        }}
+      >
+        上传PDF
+      </button>
+
+      <hr />
+
+      {/* 聊天记录 */}
       <div
         style={{
           border: "1px solid #ccc",
@@ -124,6 +182,7 @@ function App() {
         }
       </div>
 
+      {/* 输入框 */}
       <input
         style={{
           width: "700px",

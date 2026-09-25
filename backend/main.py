@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from fastapi import UploadFile, File
+from pypdf import PdfReader
 
 import os
 
@@ -161,3 +163,62 @@ def clear():
 @app.get("/history")
 def history():
     return chat_history
+
+@app.post("/upload")
+async def upload_pdf(
+    file: UploadFile = File(...)
+):
+
+    save_path = f"uploads/{file.filename}"
+
+    with open(save_path, "wb") as buffer:
+
+        content = await file.read()
+
+        buffer.write(content)
+
+    return {
+        "filename": file.filename,
+        "message": "上传成功"
+    }
+
+@app.get("/read-pdf")
+def read_pdf():
+
+    upload_dir = "uploads"
+
+    if not os.path.exists(upload_dir):
+        return {
+            "error": "uploads目录不存在"
+        }
+
+    pdf_files = [
+        f for f in os.listdir(upload_dir)
+        if f.endswith(".pdf")
+    ]
+
+    if len(pdf_files) == 0:
+        return {
+            "error": "没有找到PDF文件"
+        }
+
+    latest_pdf = os.path.join(
+        upload_dir,
+        pdf_files[-1]
+    )
+
+    reader = PdfReader(latest_pdf)
+
+    text = ""
+
+    for page in reader.pages:
+
+        page_text = page.extract_text()
+
+        if page_text:
+            text += page_text + "\n"
+
+    return {
+        "filename": pdf_files[-1],
+        "content": text[:5000]
+    }
