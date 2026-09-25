@@ -2,6 +2,8 @@ from database import SessionLocal
 
 from services import document_service
 
+from services import prompts
+
 from services.pdf_service import (
     read_pdf_file,
     split_text
@@ -336,14 +338,14 @@ def rag_chat(question: str):
     if faiss_index is None:
 
         return {
-            "answer": "知识库为空，请先执行 build-rag",
+            "answer": prompts.EMPTY_KB_ANSWER,
             "sources": []
         }
 
     if not chunks_store:
 
         return {
-            "answer": "知识库为空，请先执行 build-rag",
+            "answer": prompts.EMPTY_KB_ANSWER,
             "sources": []
         }
 
@@ -359,7 +361,7 @@ def rag_chat(question: str):
     if not docs:
 
         return {
-            "answer": "没有找到与问题相关的知识库内容。",
+            "answer": prompts.NO_CONTEXT_ANSWER,
             "sources": []
         }
 
@@ -371,36 +373,13 @@ def rag_chat(question: str):
 
     # =========================
     # 4. 构造 Prompt
+    #    System Instruction / Retrieved Context / User Question
     # =========================
 
-    prompt = f"""
-你是一名知识库助手。
-
-请严格根据下面提供的知识库内容回答问题。
-
-如果知识库中没有相关信息，请明确告诉用户：
-"知识库中没有找到相关信息。"
-
-不要使用知识库之外的信息进行推测。
-
-====================
-知识库内容
-====================
-
-{context}
-
-====================
-用户问题
-====================
-
-{question}
-
-====================
-回答要求
-====================
-
-请用简洁、准确的中文回答。
-"""
+    messages = prompts.build_rag_messages(
+        context,
+        question
+    )
 
     # =========================
     # 5. 调用 DeepSeek
@@ -410,12 +389,7 @@ def rag_chat(question: str):
 
         model="deepseek-chat",
 
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        messages=messages
     )
 
     # =========================
