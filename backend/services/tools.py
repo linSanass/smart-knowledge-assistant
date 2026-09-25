@@ -251,19 +251,40 @@ def knowledge_search(query, top_k=3):
     # 延迟导入，避免 rag_service 启动时加载 embedding 模型
     from services.rag_service import search_chunks
 
+    from services import cache_service
+
     top_k = max(1, min(int(top_k or 3), 10))
+
+    # =========================
+    # 1. 查缓存
+    # =========================
+
+    cache_key = cache_service.make_key(query, top_k)
+
+    cached = cache_service.get_json(cache_key)
+
+    if cached is not None:
+
+        # cached 表示这次是缓存命中
+        return {**cached, "cached": True}
+
+    # =========================
+    # 2. 未命中，真的检索
+    # =========================
 
     results = search_chunks(query, top_k=top_k)
 
     if not results:
 
+        # 空结果不缓存：构建索引后应该立刻能查到
         return {
             "found": False,
             "message": "知识库为空或没有找到相关内容",
-            "results": []
+            "results": [],
+            "cached": False
         }
 
-    return {
+    payload = {
         "found": True,
         "results": [
             {
@@ -274,6 +295,14 @@ def knowledge_search(query, top_k=3):
             for item in results
         ]
     }
+
+    # =========================
+    # 3. 写缓存
+    # =========================
+
+    cache_service.set_json(cache_key, payload)
+
+    return {**payload, "cached": False}
 
 
 # =========================

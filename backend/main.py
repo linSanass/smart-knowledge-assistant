@@ -47,6 +47,10 @@ from routers.agent import (
     router as agent_router
 )
 
+from routers.cache import (
+    router as cache_router
+)
+
 
 # =========================
 # 生命周期：启动时建表
@@ -111,6 +115,10 @@ app.include_router(
 
 app.include_router(
     agent_router
+)
+
+app.include_router(
+    cache_router
 )
 
 

@@ -1,5 +1,7 @@
 from database import SessionLocal
 
+from services import cache_service
+
 from services import document_service
 
 from services import prompts
@@ -96,6 +98,8 @@ def build_vector_store():
             chunks_store = []
             faiss_index = None
 
+            cache_service.invalidate()
+
             return {
                 "message": "没有可用的 PDF，请先上传",
                 "chunk_count": 0,
@@ -164,6 +168,8 @@ def build_vector_store():
             chunks_store = []
             faiss_index = None
 
+            cache_service.invalidate()
+
             return {
                 "message": "所有 PDF 解析失败",
                 "chunk_count": 0,
@@ -209,6 +215,9 @@ def build_vector_store():
         chunks_store = new_chunks
 
         faiss_index = new_index
+
+        # 索引变了，之前缓存的检索结果全部失效
+        cache_service.invalidate()
 
         return {
             "message": "知识库构建成功",
