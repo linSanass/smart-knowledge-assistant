@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
+import "./App.css";
+
 import {
   buildRag,
   createConversation,
+  createNote,
   deleteConversation,
   deleteDocument,
   getConversation,
@@ -10,87 +13,24 @@ import {
   listConversations,
   listDocuments,
   sendMessage,
+  updateNote,
   uploadDocument
 } from "./api";
 
-import SourceCard from "./SourceCard";
+import Sidebar from "./components/Sidebar";
+import ChatArea from "./components/ChatArea";
+import Composer from "./components/Composer";
+import KnowledgeDialog from "./components/KnowledgeDialog";
+import ConfirmDialog from "./components/ConfirmDialog";
 
-const styles = {
 
-  page: {
-    width: "1100px",
-    margin: "0 auto",
-    padding: "20px",
-    color: "white"
-  },
-
-  layout: {
-    display: "flex",
-    gap: "20px",
-    alignItems: "flex-start"
-  },
-
-  sidebar: {
-    width: "260px",
-    flexShrink: 0
-  },
-
-  conversation: {
-    // 用长写属性，便于下面只覆盖 borderColor 而不混用简写
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: "#666",
-    padding: "10px",
-    marginBottom: "8px",
-    cursor: "pointer",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "8px"
-  },
-
-  conversationActive: {
-    borderColor: "#4a9eff",
-    background: "#1b3a5c"
-  },
-
-  conversationTitle: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: "14px"
-  },
-
-  main: {
-    flex: 1,
-    minWidth: 0
-  },
-
-  messageBox: {
-    border: "1px solid #666",
-    height: "460px",
-    overflowY: "auto",
-    padding: "10px"
-  },
-
-  bubble: {
-    marginBottom: "15px"
-  },
-
-  toolCall: {
-    display: "inline-block",
-    textAlign: "left",
-    width: "90%",
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: "#5b4b8a",
-    borderRadius: "4px",
-    padding: "8px",
-    marginTop: "6px",
-    fontSize: "12px",
-    color: "#cbb8ff"
-  }
+const EMPTY_INDEX_STATUS = {
+  built: false,
+  building: false,
+  finished_at: null,
+  last_error: null
 };
+
 
 function App() {
 
@@ -106,39 +46,50 @@ function App() {
 
   const [loading, setLoading] = useState(false);
 
-  const [pdfFiles, setPdfFiles] = useState([]);
-
   const [documents, setDocuments] = useState([]);
 
-  const [indexStatus, setIndexStatus] = useState({
-    built: false,
-    chunk_count: 0,
-    documents: 0,
-    building: false,
-    finished_at: null
-  });
+  const [indexStatus, setIndexStatus] = useState(EMPTY_INDEX_STATUS);
 
-  // 非 null 表示「已经触发构建、正等它结束」，from 是触发时的 finished_at
+  const [uploading, setUploading] = useState(false);
+
+  // 顶替原来的 alert：错误就地显示在输入框下方
+  const [note, setNote] = useState(null);
+
+  // 知识条目对话框：{ mode: "view" | "create" | "edit", item }
+  const [dialog, setDialog] = useState(null);
+
+  // 待确认删除的条目
+  const [confirmItem, setConfirmItem] = useState(null);
+
+  // 保存 / 删除进行中，用于禁用按钮
+  const [busy, setBusy] = useState(false);
+
+  // 触发过构建、但还没观测到它结束
   const [buildWatch, setBuildWatch] = useState(null);
 
-  const messageBoxRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  // 并发请求的序号，用来丢弃过期响应
   const conversationsSeq = useRef(0);
 
   const knowledgeSeq = useRef(0);
 
-  // 轮询次数，防止文档一直卡在 pending 时无限轮询
   const pollCount = useRef(0);
 
-  // 加载会话列表
+  // 自己刚建出来的会话：历史由本地维护，
+  // 不要让「切换会话」的加载把它覆盖掉
+  const skipLoadRef = useRef(null);
+
+
+  // =========================
+  // 数据加载
+  // =========================
+
   const refreshConversations = async () => {
 
     const seq = ++conversationsSeq.current;
 
     const data = await listConversations();
 
-    // 已经有更新的请求发出，这次结果作废
     if (seq !== conversationsSeq.current) return data;
 
     setConversations(data);
@@ -146,7 +97,6 @@ function App() {
     return data;
   };
 
-  // 刷新知识库（文档列表 + 索引状态）
   const refreshKnowledge = async () => {
 
     const seq = ++knowledgeSeq.current;
@@ -167,44 +117,82 @@ function App() {
     return { docs, status };
   };
 
+
   useEffect(() => {
 
     refreshConversations().catch(
-      (error) => alert("加载会话失败: " + error.message)
+      (error) => setNote({
+        text: "加载会话失败：" + error.message,
+        error: true
+      })
     );
 
     refreshKnowledge().catch(
-      (error) => alert("加载知识库失败: " + error.message)
+      (error) => setNote({
+        text: "加载知识库失败：" + error.message,
+        error: true
+      })
     );
 
   }, []);
 
+
   // 切换会话时加载历史消息
   useEffect(() => {
 
+    // 没有选中会话就没什么可加载的。
+    // 这里不顺手 setMessages([])：清空消息由「删除会话」那个操作自己做，
+    // 放在 effect 里会在挂载时多触发一次渲染，而且两个地方各清一次容易走岔
     if (currentId === null) {
-
-      setMessages([]);
 
       return;
     }
 
+    // 刚落库的新会话跳过：它刚发出去的消息还在本地，
+    // 重新拉取会把它冲掉
+    if (skipLoadRef.current === currentId) {
+
+      skipLoadRef.current = null;
+
+      return;
+    }
+
+    let cancelled = false;
+
     getConversation(currentId)
-      .then((data) => setMessages(data.messages || []))
-      .catch((error) => alert("加载历史失败: " + error.message));
+      .then((data) => {
+
+        if (cancelled) return;
+
+        setMessages(data.messages || []);
+      })
+      .catch((error) => setNote({
+        text: "加载历史失败：" + error.message,
+        error: true
+      }));
+
+    return () => {
+
+      cancelled = true;
+    };
 
   }, [currentId]);
 
-  // 新消息自动滚动到底部
+
+  // 新消息自动滚到底部
   useEffect(() => {
 
-    const box = messageBoxRef.current;
+    const el = scrollRef.current;
 
-    if (box) box.scrollTop = box.scrollHeight;
+    if (el) el.scrollTop = el.scrollHeight;
 
-  }, [messages]);
+  }, [messages, loading]);
 
-  // 后台构建期间需要轮询：索引状态和每个文档的状态都在变
+
+  // =========================
+  // 后台构建期间的轮询
+  // =========================
+
   const hasUnsettledDocs = documents.some(
     (doc) => doc.status === "pending" || doc.status === "processing"
   );
@@ -234,7 +222,7 @@ function App() {
 
     const timer = setInterval(() => {
 
-      // 兜底：文档一直卡在 pending（例如旧 /upload 接口建的）时不要无限轮询
+      // 兜底：文档一直卡在 pending 时不要无限轮询
       if (++pollCount.current > 40) {
 
         clearInterval(timer);
@@ -250,146 +238,235 @@ function App() {
 
   }, [shouldPoll]);
 
-  // 触发构建前调用：记下当前收尾时间
-  const watchBuild = () => {
+  const watchBuildStart = () => {
 
     setBuildWatch({ from: indexStatus.finished_at });
 
     pollCount.current = 0;
   };
 
-  // 新建会话
+
+  // =========================
+  // 会话
+  // =========================
+
   const handleNewConversation = async () => {
 
     try {
 
       const conversation = await createConversation();
 
-      setConversations(prev => [conversation, ...prev]);
+      setConversations((prev) => [conversation, ...prev]);
 
       setCurrentId(conversation.id);
 
+      setMessages([]);
+
+      setNote(null);
+
     } catch (error) {
 
-      alert("新建会话失败: " + error.message);
+      setNote({ text: "新建会话失败：" + error.message, error: true });
     }
   };
 
-  // 删除会话
-  const handleDeleteConversation = async (event, id) => {
+  const handleSelectConversation = (id) => {
 
-    // 点击删除按钮时不要触发切换会话
-    event.stopPropagation();
+    if (id === currentId) return;
 
-    if (!window.confirm("确认删除该会话?")) return;
+    setCurrentId(id);
+
+    setNote(null);
+  };
+
+  const handleDeleteConversation = async (id) => {
 
     try {
 
       await deleteConversation(id);
 
-      setConversations(prev =>
-        prev.filter(c => c.id !== id)
+      setConversations((prev) =>
+        prev.filter((item) => item.id !== id)
       );
 
-      if (currentId === id) setCurrentId(null);
+      if (id === currentId) {
+
+        setCurrentId(null);
+
+        setMessages([]);
+      }
 
     } catch (error) {
 
-      alert("删除失败: " + error.message);
+      setNote({ text: "删除会话失败：" + error.message, error: true });
     }
   };
 
-  // 上传PDF（支持多选）
-  const handleUpload = async () => {
 
-    if (pdfFiles.length === 0) {
+  // =========================
+  // 知识库
+  // =========================
 
-      alert("请选择PDF");
+  const handleUploadFiles = async (files) => {
 
-      return;
-    }
+    setUploading(true);
+
+    setNote(null);
 
     try {
 
-      for (const file of pdfFiles) {
+      for (const file of files) {
 
         await uploadDocument(file);
       }
 
-      const uploaded = pdfFiles.length;
-
-      setPdfFiles([]);
-
-      // 上传已经自动排队构建，进入盯梢状态
-      watchBuild();
+      // 上传后后端会自动排队构建，这里进入盯梢状态
+      watchBuildStart();
 
       await refreshKnowledge();
 
-      alert(`成功上传 ${uploaded} 个PDF，正在后台构建知识库`);
+      setNote({
+        text: `已上传 ${files.length} 个文件，正在后台建立知识库`
+      });
 
     } catch (error) {
 
-      alert("上传失败: " + error.message);
+      setNote({ text: "上传失败：" + error.message, error: true });
+
+    } finally {
+
+      setUploading(false);
     }
   };
 
-  // 删除PDF
-  const handleDeleteDocument = async (id, filename) => {
+  // 列表或详情里的删除都先走确认框，不再用浏览器原生 confirm
+  const requestDelete = (item) => {
 
-    if (!window.confirm(`确认删除 ${filename}?`)) return;
+    // 从详情里点删除时先把详情收起，避免两个弹层叠在一起
+    setDialog(null);
+
+    setConfirmItem(item);
+  };
+
+  const confirmDelete = async () => {
+
+    if (!confirmItem) return;
+
+    setBusy(true);
 
     try {
 
-      const data = await deleteDocument(id);
+      const data = await deleteDocument(confirmItem.id);
 
-      // 删除会触发后台重建索引，跟着轮询
-      if (data.index_rebuild_scheduled) watchBuild();
+      setConfirmItem(null);
 
+      if (data.index_rebuild_scheduled) watchBuildStart();
+
+      // 删除后列表立即刷新
       await refreshKnowledge();
+
+      setNote(null);
 
     } catch (error) {
 
-      alert("删除失败: " + error.message);
+      setNote({ text: "删除失败：" + error.message, error: true });
+
+    } finally {
+
+      setBusy(false);
     }
   };
 
-  // 构建 / 重建知识库：只负责排队，结果靠轮询观察
-  const handleBuildRag = async () => {
+  // 新建 / 编辑手写知识。
+  // 后端保存后会排队重建索引，所以和上传一样进入盯梢状态
+  const saveNote = async (run, message) => {
+
+    setBusy(true);
+
+    try {
+
+      await run();
+
+      setDialog(null);
+
+      watchBuildStart();
+
+      await refreshKnowledge();
+
+      setNote({ text: message });
+
+    } catch (error) {
+
+      setNote({ text: "保存失败：" + error.message, error: true });
+
+    } finally {
+
+      setBusy(false);
+    }
+  };
+
+  const handleCreateNote = (title, content) => {
+
+    saveNote(
+      () => createNote(title, content),
+      "已保存，正在后台更新知识库"
+    );
+  };
+
+  const handleUpdateNote = (id, title, content) => {
+
+    saveNote(
+      () => updateNote(id, title, content),
+      "已更新，正在后台更新知识库"
+    );
+  };
+
+  const handleRebuild = async () => {
 
     try {
 
       await buildRag();
 
-      watchBuild();
+      watchBuildStart();
+
+      setNote(null);
 
     } catch (error) {
 
-      alert(error.message);
-
-      // 409 = 已经有一次构建在跑，跟着它一起轮询，
-      // 而不是让用户以为这次点击彻底失败了
+      // 409 = 已经有一次构建在跑，跟着它一起轮询即可
       if (error.status === 409) {
 
-        watchBuild();
+        watchBuildStart();
 
         await refreshKnowledge().catch(() => {});
+
+        return;
       }
+
+      setNote({ text: "构建失败：" + error.message, error: true });
     }
   };
 
-  // 发送消息：mode 为 chat / rag / tools / agent
-  const handleSend = async (mode) => {
 
-    const text = message.trim();
+  // =========================
+  // 发送
+  // =========================
+
+  // 系统自动选模式，用户不再需要选：
+  // 知识库已构建就走 RAG（回答会带来源），否则走普通对话
+  const autoMode = indexStatus.built ? "rag" : "chat";
+
+  const handleSend = async (override) => {
+
+    const text = (override ?? message).trim();
 
     if (!text || loading) return;
 
+    let conversationId = currentId;
+
     setLoading(true);
 
-    setMessage("");
-
-    // 还没有会话时先自动建一个
-    let conversationId = currentId;
+    setNote(null);
 
     try {
 
@@ -399,25 +476,29 @@ function App() {
 
         conversationId = conversation.id;
 
+        skipLoadRef.current = conversationId;
+
         setCurrentId(conversationId);
 
-        setConversations(prev => [conversation, ...prev]);
+        setConversations((prev) => [conversation, ...prev]);
       }
 
       // 乐观渲染用户消息
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         { role: "user", content: text }
       ]);
 
+      setMessage("");
+
       const data = await sendMessage(
         conversationId,
         text,
-        mode,
+        autoMode,
         role
       );
 
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
@@ -427,12 +508,12 @@ function App() {
         }
       ]);
 
-      // 标题可能刚由首条消息生成，刷新列表
-      await refreshConversations();
+      // 首条消息会改写会话标题，刷新一下列表
+      refreshConversations().catch(() => {});
 
     } catch (error) {
 
-      alert("发送失败: " + error.message);
+      setNote({ text: "回答失败：" + error.message, error: true });
 
     } finally {
 
@@ -440,416 +521,123 @@ function App() {
     }
   };
 
+
+  // =========================
+  // 渲染
+  // =========================
+
+  const currentConversation = conversations.find(
+    (item) => item.id === currentId
+  );
+
   return (
 
-    <div style={styles.page}>
+    <div className="app">
 
-      <h1>
-        Smart Knowledge Assistant
-      </h1>
+      <Sidebar
 
-      <div style={styles.layout}>
+        conversations={conversations}
+        currentId={currentId}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
 
-        {/* 左侧：会话管理 */}
-        <div style={styles.sidebar}>
+        role={role}
+        onRoleChange={setRole}
 
-          <button
-            onClick={handleNewConversation}
-            style={{
-              width: "100%",
-              padding: "8px",
-              marginBottom: "10px"
-            }}
-          >
-            + 新建会话
-          </button>
+        documents={documents}
+        onDeleteDocument={(id) => requestDelete(
+          documents.find((item) => item.id === id)
+        )}
+        onOpenDocument={(item) => setDialog({ mode: "view", item })}
+        onNewNote={() => setDialog({ mode: "create", item: null })}
 
-          {
-            conversations.map((conversation) => (
+        indexStatus={indexStatus}
+        onRebuild={handleRebuild}
+        building={indexStatus.building}
+      />
 
-              <div
-                key={conversation.id}
-                onClick={() =>
-                  setCurrentId(conversation.id)
-                }
-                style={{
-                  ...styles.conversation,
+      <div className="main">
 
-                  ...(conversation.id === currentId
-                    ? styles.conversationActive
-                    : {})
-                }}
-              >
+        <div className="chat-head">
 
-                <div style={styles.conversationTitle}>
-                  {conversation.title}
+          <div className="chat-title">
+            {currentConversation?.title || "新会话"}
+          </div>
 
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#999"
-                    }}
-                  >
-                    {conversation.message_count} 条消息
-                  </div>
-                </div>
+          <div className="chat-head-right">
 
-                <button
-                  onClick={(event) =>
-                    handleDeleteConversation(
-                      event,
-                      conversation.id
-                    )
-                  }
-                  title="删除会话"
-                >
-                  ×
-                </button>
-
-              </div>
-            ))
-          }
-
-          {
-            conversations.length === 0 && (
-              <p style={{ color: "#888", fontSize: "13px" }}>
-                还没有会话，点击上方按钮开始
-              </p>
-            )
-          }
-
-        </div>
-
-        {/* 右侧：聊天区 */}
-        <div style={styles.main}>
-
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          >
-            <option value="general">通用助手</option>
-            <option value="coding">编程助手</option>
-            <option value="translation">翻译助手</option>
-            <option value="writing">写作助手</option>
-            <option value="tutor">学习导师</option>
-          </select>
-
-          <span
-            style={{
-              marginLeft: "10px",
-              fontSize: "13px",
-              color: "#999"
-            }}
-          >
-            {
-              currentId === null
-                ? "未选择会话（发送时自动新建）"
-                : `当前会话 #${currentId}`
-            }
-          </span>
-
-          <hr />
-
-          {/* 知识库 */}
-          <div
-            style={{
-              borderWidth: "1px",
-              borderStyle: "solid",
-              borderColor: "#666",
-              padding: "10px",
-              marginBottom: "10px"
-            }}
-          >
-
-            <b>知识库</b>
-
-            <div style={{ marginTop: "8px" }}>
-              <input
-                type="file"
-                accept=".pdf"
-                multiple
-                onChange={(e) =>
-                  setPdfFiles(Array.from(e.target.files))
-                }
-              />
-
-              <button
-                onClick={handleUpload}
-                style={{ marginLeft: "10px" }}
-              >
-                上传PDF
-              </button>
-
-              <button
-                onClick={handleBuildRag}
-                disabled={indexStatus.building}
-                style={{ marginLeft: "10px" }}
-              >
-                {indexStatus.building ? "构建中..." : "构建知识库"}
-              </button>
-            </div>
-
-            <div
-              style={{
-                marginTop: "8px",
-                fontSize: "13px",
-                color: indexStatus.building
-                  ? "#ffd479"
-                  : indexStatus.built
-                    ? "#7ddc7d"
-                    : "#999"
-              }}
+            <span
+              className={"mode-pill" + (autoMode === "rag" ? " on" : "")}
+              title={
+                autoMode === "rag"
+                  ? "知识库已就绪，回答会附上参考来源"
+                  : "尚未建立知识库，当前为普通对话"
+              }
             >
-              {
-                indexStatus.building
-                  ? "索引构建中..."
-                  : indexStatus.built
-                    ? `索引已构建：${indexStatus.documents} 个文档 / ${indexStatus.chunk_count} 个 Chunk`
-                    : "索引未构建"
-              }
-
-              {
-                indexStatus.last_error && (
-                  <span
-                    style={{
-                      color: "#ff7b7b",
-                      marginLeft: "8px"
-                    }}
-                  >
-                    上次构建失败：{indexStatus.last_error}
-                  </span>
-                )
-              }
-            </div>
-
-            {/* 文档列表 */}
-            <div style={{ marginTop: "8px" }}>
-
-              {
-                documents.length === 0 && (
-                  <span style={{ fontSize: "13px", color: "#888" }}>
-                    还没有 PDF
-                  </span>
-                )
-              }
-
-              {
-                documents.map((doc) => (
-
-                  <div
-                    key={doc.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      fontSize: "13px",
-                      padding: "4px 0"
-                    }}
-                  >
-
-                    <span style={{ flex: 1 }}>
-                      {doc.filename}
-                    </span>
-
-                    <span
-                      style={{
-                        color:
-                          doc.status === "ready"
-                            ? "#7ddc7d"
-                            : doc.status === "failed"
-                              ? "#ff7b7b"
-                              : doc.status === "processing"
-                                ? "#ffd479"
-                                : "#ddd"
-                      }}
-                    >
-                      {
-                        doc.status === "ready"
-                          ? `${doc.chunk_count} chunks`
-                          : doc.status === "failed"
-                            ? `失败: ${doc.error || ""}`
-                            : doc.status === "processing"
-                              ? "处理中..."
-                              : "待索引"
-                      }
-                    </span>
-
-                    <button
-                      title="删除文档"
-                      onClick={() =>
-                        handleDeleteDocument(doc.id, doc.filename)
-                      }
-                    >
-                      ×
-                    </button>
-
-                  </div>
-                ))
-              }
-
-            </div>
+              <span className="mode-pill-dot" />
+              {autoMode === "rag" ? "知识库问答" : "普通对话"}
+            </span>
 
           </div>
-
-          <hr />
-
-          {/* 消息列表 */}
-          <div
-            ref={messageBoxRef}
-            style={styles.messageBox}
-          >
-
-            {
-              messages.map((msg, index) => (
-
-                <div
-                  key={msg.id || index}
-                  style={{
-                    ...styles.bubble,
-                    textAlign:
-                      msg.role === "user"
-                        ? "right"
-                        : "left"
-                  }}
-                >
-
-                  <b>
-                    {msg.role === "user" ? "你" : "AI"}
-                  </b>
-
-                  <div style={{ whiteSpace: "pre-wrap" }}>
-                    {msg.content}
-                  </div>
-
-                  {/* Function Calling 轨迹 */}
-                  {
-                    (msg.tool_calls || []).map((call, i) => (
-
-                      <div
-                        key={i}
-                        style={styles.toolCall}
-                      >
-                        <b>
-                          {
-                            typeof call.step === "number"
-                              ? `第 ${call.step} 步 · `
-                              : ""
-                          }
-                          🔧 {call.name}
-                        </b>
-
-                        <div style={{ color: "#aaa" }}>
-                          参数：{JSON.stringify(call.arguments)}
-                        </div>
-
-                        <div
-                          style={{
-                            whiteSpace: "pre-wrap",
-                            maxHeight: "80px",
-                            overflowY: "auto"
-                          }}
-                        >
-                          结果：{
-                            String(call.result).slice(0, 300)
-                          }
-                        </div>
-                      </div>
-                    ))
-                  }
-
-                  {/* 参考资料 */}
-                  {
-                    (msg.sources || []).length > 0 && (
-
-                      <div
-                        style={{
-                          display: "inline-block",
-                          textAlign: "left",
-                          width: "90%"
-                        }}
-                      >
-
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#888",
-                            marginTop: "8px"
-                          }}
-                        >
-                          参考资料（{msg.sources.length}）
-                        </div>
-
-                        {
-                          msg.sources.map((source, i) => (
-
-                            <SourceCard
-                              key={i}
-                              index={i}
-                              source={source}
-                            />
-                          ))
-                        }
-
-                      </div>
-                    )
-                  }
-
-                </div>
-              ))
-            }
-
-          </div>
-
-          <br />
-
-          <input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSend("chat");
-            }}
-            placeholder="输入问题..."
-            style={{ width: "520px", padding: "10px" }}
-          />
-
-          <button
-            onClick={() => handleSend("chat")}
-            disabled={loading}
-            style={{ marginLeft: "10px" }}
-          >
-            {loading ? "生成中..." : "AI聊天"}
-          </button>
-
-          <button
-            onClick={() => handleSend("rag")}
-            disabled={loading}
-            style={{ marginLeft: "10px" }}
-          >
-            知识库问答
-          </button>
-
-          <button
-            onClick={() => handleSend("tools")}
-            disabled={loading}
-            style={{ marginLeft: "10px" }}
-          >
-            工具模式
-          </button>
-
-          <button
-            onClick={() => handleSend("agent")}
-            disabled={loading}
-            style={{ marginLeft: "10px" }}
-          >
-            Agent
-          </button>
 
         </div>
+
+        <ChatArea
+          messages={messages}
+          loading={loading}
+          scrollRef={scrollRef}
+          hasIndex={indexStatus.built}
+          onSuggestion={handleSend}
+        />
+
+        <Composer
+          value={message}
+          onChange={setMessage}
+          onSend={() => handleSend()}
+          loading={loading}
+          onUploadFiles={handleUploadFiles}
+          uploading={uploading}
+          note={note?.text}
+          noteError={note?.error}
+        />
 
       </div>
+
+      <KnowledgeDialog
+
+        // 换条目或换模式时靠 key 重挂载，让表单初值刷新
+        key={
+          dialog
+            ? `${dialog.mode}-${dialog.item?.id ?? "new"}`
+            : "closed"
+        }
+
+        mode={dialog?.mode}
+        item={dialog?.item}
+        busy={busy}
+        onClose={() => setDialog(null)}
+        onCreate={handleCreateNote}
+        onUpdate={handleUpdateNote}
+        onEdit={(item) => setDialog({ mode: "edit", item })}
+        onDelete={requestDelete}
+      />
+
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title="确认删除"
+        message={
+          `「${confirmItem?.filename || ""}」将被删除，`
+          + "并从检索索引中移除，此操作不可撤销。"
+        }
+        busy={busy}
+        onCancel={() => setConfirmItem(null)}
+        onConfirm={confirmDelete}
+      />
 
     </div>
   );
 }
+
 
 export default App;

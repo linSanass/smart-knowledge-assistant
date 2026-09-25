@@ -124,3 +124,23 @@ export function buildRag() {
 
   return request("/build-rag");
 }
+
+// =========================
+// 手写知识
+// =========================
+
+export function createNote(title, content) {
+
+  return request(
+    "/notes",
+    jsonOptions("POST", { title, content })
+  );
+}
+
+export function updateNote(id, title, content) {
+
+  return request(
+    `/notes/${id}`,
+    jsonOptions("PUT", { title, content })
+  );
+}
