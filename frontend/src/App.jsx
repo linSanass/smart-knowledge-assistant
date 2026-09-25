@@ -250,24 +250,16 @@ function App() {
   // 会话
   // =========================
 
-  const handleNewConversation = async () => {
+  // 新建会话只进入「草稿」状态，不立刻在库里建记录。
+  // 真正的创建推迟到发出第一条消息时（见 handleSend），
+  // 这样没提问过的会话就不会在列表里留下一堆空的「新会话」
+  const handleNewConversation = () => {
 
-    try {
+    setCurrentId(null);
 
-      const conversation = await createConversation();
+    setMessages([]);
 
-      setConversations((prev) => [conversation, ...prev]);
-
-      setCurrentId(conversation.id);
-
-      setMessages([]);
-
-      setNote(null);
-
-    } catch (error) {
-
-      setNote({ text: "新建会话失败：" + error.message, error: true });
-    }
+    setNote(null);
   };
 
   const handleSelectConversation = (id) => {
@@ -530,13 +522,20 @@ function App() {
     (item) => item.id === currentId
   );
 
+  // 没发过消息的会话不进列表。
+  // 正在看的那个例外：刚发出第一条消息时本地还没有最新的 message_count，
+  // 不例外的话它会从列表里闪一下
+  const visibleConversations = conversations.filter(
+    (item) => (item.message_count || 0) > 0 || item.id === currentId
+  );
+
   return (
 
     <div className="app">
 
       <Sidebar
 
-        conversations={conversations}
+        conversations={visibleConversations}
         currentId={currentId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
