@@ -1,10 +1,6 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import UploadFile, File
-from services.rag_service import (
-    build_vector_store
-)
+from pydantic import BaseModel
 import os
 
 from services.chat_service import (
@@ -24,17 +20,42 @@ from services.rag_service import (
     rag_chat
 )
 
-app = FastAPI()
 
-# 跨域配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+# =========================
+# 创建 FastAPI
+# =========================
+
+app = FastAPI(
+    title="Smart Knowledge Assistant",
+    description="PDF RAG 知识库问答后端",
+    version="1.0.0"
 )
 
+
+# =========================
+# CORS 跨域配置
+# =========================
+
+app.add_middleware(
+    CORSMiddleware,
+
+    # React + Vite 前端
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+
+    allow_credentials=True,
+
+    allow_methods=["*"],
+
+    allow_headers=["*"],
+)
+
+
+# =========================
+# 请求数据结构
+# =========================
 
 class ChatRequest(BaseModel):
     message: str
@@ -45,6 +66,10 @@ class RagRequest(BaseModel):
     question: str
 
 
+# =========================
+# 根目录
+# =========================
+
 @app.get("/")
 def root():
 
@@ -52,6 +77,10 @@ def root():
         "message": "Smart Knowledge Assistant Running"
     }
 
+
+# =========================
+# 普通聊天
+# =========================
 
 @app.post("/chat")
 def chat_api(req: ChatRequest):
@@ -66,11 +95,19 @@ def chat_api(req: ChatRequest):
     }
 
 
+# =========================
+# 获取聊天历史
+# =========================
+
 @app.get("/history")
 def history():
 
     return get_history()
 
+
+# =========================
+# 清空聊天历史
+# =========================
 
 @app.post("/clear")
 def clear():
@@ -82,18 +119,28 @@ def clear():
     }
 
 
+# =========================
+# 上传 PDF
+# =========================
+
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...)
 ):
 
+    # 创建 uploads 文件夹
     os.makedirs(
         "uploads",
         exist_ok=True
     )
 
-    save_path = f"uploads/{file.filename}"
+    # 保存路径
+    save_path = os.path.join(
+        "uploads",
+        file.filename
+    )
 
+    # 保存 PDF
     with open(
         save_path,
         "wb"
@@ -109,12 +156,18 @@ async def upload_pdf(
     }
 
 
+# =========================
+# 读取 PDF
+# =========================
+
 @app.get("/read-pdf")
 def read_pdf_api():
 
     text = read_pdf()
 
+    # 如果 pdf_service 本身返回错误信息
     if isinstance(text, dict):
+
         return text
 
     return {
@@ -122,16 +175,29 @@ def read_pdf_api():
     }
 
 
+# =========================
+# 切分 PDF
+# =========================
+
 @app.get("/split-pdf")
 def split_pdf_api():
 
     return split_pdf()
 
 
+# =========================
+# 创建 RAG 向量数据库
+# =========================
+
 @app.get("/build-rag")
 def build_rag():
+
     return build_vector_store()
 
+
+# =========================
+# 搜索知识库
+# =========================
 
 @app.get("/search")
 def search(query: str):
@@ -143,15 +209,17 @@ def search(query: str):
     }
 
 
+# =========================
+# RAG 问答
+# =========================
+
 @app.post("/rag-chat")
 def rag_chat_api(
     req: RagRequest
 ):
 
-    answer = rag_chat(
+    result = rag_chat(
         req.question
     )
 
-    return {
-        "answer": answer
-    }
+    return result

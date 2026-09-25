@@ -10,11 +10,16 @@ function App() {
 
   const [messages, setMessages] = useState([]);
 
+  const [sources, setSources] = useState([]);
+
+  const [knowledgeBuilt, setKnowledgeBuilt] =
+    useState(false);
+
   // 上传PDF
   const uploadPdf = async () => {
 
     if (!pdfFile) {
-      alert("请选择PDF文件");
+      alert("请选择PDF");
       return;
     }
 
@@ -38,7 +43,23 @@ function App() {
     alert(data.message);
   };
 
-  // 发送消息
+  // 构建知识库
+  const buildRag = async () => {
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/build-rag"
+    );
+
+    const data = await response.json();
+
+    alert(
+      `知识库构建完成，共${data.chunk_count}个Chunk`
+    );
+
+    setKnowledgeBuilt(true);
+  };
+
+  // 普通聊天
   const sendMessage = async () => {
 
     if (!message.trim()) return;
@@ -60,7 +81,8 @@ function App() {
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type":
+            "application/json"
         },
         body: JSON.stringify({
           message: currentMessage,
@@ -80,25 +102,72 @@ function App() {
     ]);
   };
 
+  // RAG问答
+  const askKnowledge = async () => {
+
+    if (!message.trim()) return;
+
+    const currentMessage = message;
+
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "user",
+        content: currentMessage
+      }
+    ]);
+
+    setMessage("");
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/rag-chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+        body: JSON.stringify({
+          question: currentMessage
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    setMessages(prev => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.answer
+      }
+    ]);
+
+    setSources(
+      data.sources || []
+    );
+  };
+
   return (
+
     <div
       style={{
-        width: "900px",
+        width: "1100px",
         margin: "0 auto",
-        padding: "20px"
+        padding: "20px",
+        color: "white"
       }}
     >
 
-      <h1>Smart Knowledge Assistant</h1>
+      <h1>
+        Smart Knowledge Assistant
+      </h1>
 
-      {/* 角色选择 */}
       <select
         value={role}
-        onChange={(e) => setRole(e.target.value)}
-        style={{
-          marginBottom: "10px",
-          padding: "8px"
-        }}
+        onChange={(e) =>
+          setRole(e.target.value)
+        }
       >
         <option value="unity">
           Unity导师
@@ -117,88 +186,169 @@ function App() {
         </option>
       </select>
 
-      <br />
+      <hr />
 
-      {/* PDF上传 */}
       <input
         type="file"
         accept=".pdf"
-        onChange={(e) => {
+        onChange={(e) =>
           setPdfFile(
             e.target.files[0]
-          );
-        }}
+          )
+        }
       />
 
       <button
         onClick={uploadPdf}
-        style={{
-          marginLeft: "10px"
-        }}
       >
         上传PDF
       </button>
 
-      <hr />
-
-      {/* 聊天记录 */}
-      <div
+      <button
+        onClick={buildRag}
         style={{
-          border: "1px solid #ccc",
-          height: "500px",
-          overflowY: "auto",
-          padding: "10px",
-          marginBottom: "10px"
+          marginLeft: "10px"
         }}
       >
+        构建知识库
+      </button>
+
+      <p>
+        当前文件：
         {
-          messages.map((msg, index) => (
-
-            <div
-              key={index}
-              style={{
-                marginBottom: "15px",
-                textAlign:
-                  msg.role === "user"
-                    ? "right"
-                    : "left"
-              }}
-            >
-              <strong>
-                {
-                  msg.role === "user"
-                    ? "你"
-                    : "AI"
-                }
-              </strong>
-
-              <div>
-                {msg.content}
-              </div>
-
-            </div>
-
-          ))
+          pdfFile
+            ? pdfFile.name
+            : "未选择"
         }
+      </p>
+
+      <p>
+        状态：
+        {
+          knowledgeBuilt
+            ? "知识库已构建"
+            : "未构建"
+        }
+      </p>
+
+      <hr />
+
+      <div
+        style={{
+          border: "1px solid #666",
+          height: "500px",
+          overflowY: "auto",
+          padding: "10px"
+        }}
+      >
+
+        {
+          messages.map(
+            (
+              msg,
+              index
+            ) => (
+
+              <div
+                key={index}
+                style={{
+                  marginBottom:
+                    "15px",
+                  textAlign:
+                    msg.role ===
+                    "user"
+                      ? "right"
+                      : "left"
+                }}
+              >
+                <b>
+                  {
+                    msg.role ===
+                    "user"
+                      ? "你"
+                      : "AI"
+                  }
+                </b>
+
+                <div>
+                  {
+                    msg.content
+                  }
+                </div>
+
+              </div>
+            )
+          )
+        }
+
       </div>
 
-      {/* 输入框 */}
+      <br />
+
       <input
+        value={message}
+        onChange={(e) =>
+          setMessage(
+            e.target.value
+          )
+        }
         style={{
           width: "700px",
-          padding: "8px",
-          marginRight: "10px"
+          padding: "10px"
         }}
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="请输入问题"
       />
 
       <button
         onClick={sendMessage}
       >
-        发送
+        AI聊天
       </button>
+
+      <button
+        onClick={askKnowledge}
+        style={{
+          marginLeft: "10px"
+        }}
+      >
+        知识库问答
+      </button>
+
+      <hr />
+
+      <h3>
+        检索到的知识来源
+      </h3>
+
+      {
+        sources.map(
+          (
+            source,
+            index
+          ) => (
+
+            <div
+              key={index}
+              style={{
+                border:
+                  "1px solid #666",
+                padding: "10px",
+                marginBottom:
+                  "10px"
+              }}
+            >
+              <b>
+                Chunk
+                {index + 1}
+              </b>
+
+              <p>
+                {source}
+              </p>
+
+            </div>
+          )
+        )
+      }
 
     </div>
   );
