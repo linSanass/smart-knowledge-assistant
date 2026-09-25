@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支连推多次时，取消上一次还没跑完的，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # =========================
+  # 后端
+  # =========================
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: devpassword
+          MYSQL_DATABASE: smart_ai_assistant
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdevpassword --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=30
+
+    env:
+      DATABASE_URL: mysql+pymysql://root:devpassword@127.0.0.1:3306/smart_ai_assistant?charset=utf8mb4
+      REDIS_URL: redis://127.0.0.1:6379/0
+
+      # 下面两个测试不调用 DeepSeek，这里只是占位。
+      # rag_service 在 import 阶段就会构造 OpenAI 客户端，缺 key 会直接抛异常
+      DEEPSEEK_API_KEY: sk-ci-placeholder-not-used
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: 安装依赖
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          # 和 backend/Dockerfile 保持一致：装 CPU 版 torch。
+          # 默认的 CUDA 版会多拉几 GB 的 nvidia 库，而本项目是 faiss-cpu + CPU 推理
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Python 基础检查
+        working-directory: backend
+        run: |
+          python -m compileall -q main.py routers services tests
+          python -c "import fastapi, sqlalchemy, pymysql, redis, faiss, openai, pypdf, sentence_transformers; print('关键依赖均可导入')"
+
+      - name: 初始化数据库表
+        working-directory: backend
+        run: |
+          # 必须显式建表：测试用的 TestClient 不带 with，
+          # 不会触发 lifespan，init_db() 不会执行。
+          # 本机跑测试时表早就存在，所以这个坑只在全新数据库上暴露
+          python -c "from database import init_db; init_db(); print('建表完成')"
+
+      - name: 运行测试（不依赖 DeepSeek 的部分）
+        working-directory: backend
+        run: |
+          # UPLOAD_DIR 是相对路径 "uploads"，所以必须在 backend/ 下执行
+          python tests/test_cache.py
+          python tests/test_async_documents.py
+
+  # =========================
+  # 前端
+  # =========================
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: 构建
+        working-directory: frontend
+        run: npm run build
