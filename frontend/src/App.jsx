@@ -419,7 +419,16 @@ function App() {
 
       await buildRag();
 
+      // 先记下当前的 finished_at 作为「新一轮是否跑完」的判据，
+      // 必须在改 indexStatus 之前取，否则拿到的是新值
       watchBuildStart();
+
+      // 乐观置为构建中。
+      // 后端构建往往比 1.5s 的轮询间隔还快，只靠轮询的话
+      // 「知识库构建中…」这个中间态根本来不及渲染，
+      // 底栏从「已就绪」到「已就绪」全程没变化，看着像没点动。
+      // 下一次轮询会用服务端的真实状态覆盖它
+      setIndexStatus((prev) => ({ ...prev, building: true }));
 
       setNote(null);
 
