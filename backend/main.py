@@ -43,6 +43,10 @@ from routers.documents import (
     router as documents_router
 )
 
+from routers.notes import (
+    router as notes_router
+)
+
 from routers.tools import (
     router as tools_router
 )
@@ -111,6 +115,10 @@ app.include_router(
 
 app.include_router(
     documents_router
+)
+
+app.include_router(
+    notes_router
 )
 
 app.include_router(

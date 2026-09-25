@@ -271,23 +271,37 @@ def build_vector_store():
         failed = []
 
         # =========================
-        # 1. 逐个 PDF 解析 + 切分
+        # 1. 逐个取文本 + 切分
         # =========================
 
         for document in documents:
 
             try:
 
-                text = read_pdf_file(
-                    document.file_path
-                )
+                # 笔记的正文直接取 content，PDF 才去读文件。
+                #
+                # 这是整个索引流程里唯一为「笔记」分叉的地方：
+                # 切分、embedding、FAISS、检索都不需要知道内容来自哪种来源，
+                # chunk 里照旧写 filename（笔记即标题）与 document_id，
+                # 所以 serialize_source 的字段也一个没动
+                if document_service.is_note(document):
+
+                    # 标题一起进索引：用户按标题里的关键词搜索时应该能找到，
+                    # 否则「Unity Addressables」这种标题只能靠正文命中
+                    text = f"{document.filename}\n\n{document.content or ''}"
+
+                else:
+
+                    text = read_pdf_file(
+                        document.file_path
+                    )
 
                 if not text or not text.strip():
 
                     document_service.mark_failed(
                         db,
                         document,
-                        "PDF 内容为空"
+                        "内容为空"
                     )
 
                     failed.append(document.filename)

@@ -45,6 +45,10 @@
 - **异步构建**：上传后立即返回 202，解析 / 切分 / embedding / FAISS 全部在后台跑，
   前端轮询状态；构建期间再次触发返回 409，不会两次构建同时改索引
 - 单个 PDF 损坏不影响其它文档，失败原因写回该文档的 `status` 与 `error`
+- **手写知识**：可以直接新建 / 编辑一条知识（标题 + 内容），
+  保存后和 PDF 一样进入检索索引，回答里同样能作为来源被引用
+- **统一列表**：PDF 与手写知识在侧栏同一个列表里展示（📄 / 📝 区分），
+  点击可看详情（文件名、上传时间、文件大小、状态），删除带确认
 
 ### 工具与 Agent
 
@@ -192,7 +196,7 @@ CREATE DATABASE smart_ai_assistant
 
 | 表 | 内容 |
 | --- | --- |
-| `documents` | 上传的 PDF：文件名、路径、chunk 数、解析状态与错误 |
+| `documents` | 知识条目：PDF 与手写知识共用一表，用 `kind` 区分（`pdf` / `note`）。字段有展示名（`filename`，笔记即标题）、路径、正文（`content`，仅笔记）、解析状态与错误 |
 | `conversations` | 会话：标题、创建与更新时间 |
 | `chat_messages` | 消息：角色、内容、RAG 来源、工具调用轨迹 |
 
@@ -314,9 +318,11 @@ docker compose down -v            # 停止并清空数据库
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/documents` | 上传 PDF，**返回 202** 并排队后台构建 |
-| `GET` | `/documents` | 文档列表（含解析状态与 chunk 数） |
+| `GET` | `/documents` | 知识条目列表：PDF 与手写知识统一返回，带 `kind` / `size` / `status` |
 | `GET` | `/documents/status` | 索引状态与构建进度，**前端轮询此接口** |
-| `DELETE` | `/documents/{id}` | 删除文档，返回 `index_rebuild_scheduled` |
+| `DELETE` | `/documents/{id}` | 删除任意知识条目，返回 `index_rebuild_scheduled` |
+| `POST` | `/notes` | 新建手写知识（标题 + 内容），**返回 202** 并排队重建索引 |
+| `PUT` | `/notes/{id}` | 编辑手写知识的标题或内容，**返回 202** 并排队重建索引 |
 | `GET` | `/build-rag` | 手动触发构建，**202**；构建中重复触发返回 **409** |
 | `GET` | `/search?query=` | 直接检索，不经过大模型 |
 | `POST` | `/rag-chat` | RAG 问答，返回 `answer` + `sources` |
@@ -369,7 +375,7 @@ docker compose down -v            # 停止并清空数据库
 
 ## 测试
 
-10 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
+11 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
 
 ```bash
 cd backend
@@ -383,6 +389,7 @@ python tests/test_cache.py
 | `test_database.py` | 会话读写、级联删除 | 否 |
 | `test_conversations.py` | 多轮上下文、参数校验 | 是 |
 | `test_documents.py` | 多文档上传、索引、来源追踪、删除重建 | 是 |
+| `test_notes.py` | 手写知识：新建→可检索、编辑→旧内容移出索引、删除、统一列表 | 否 |
 | `test_async_documents.py` | 异步构建：非阻塞、409 互斥、不丢上传、崩溃恢复、坏 PDF 隔离 | 否 |
 | `test_cache.py` | 缓存命中/失效、TTL、Redis 降级 | 否 |
 | `test_tools.py` | 工具单元：calculator 白名单求值、注册表、错误处理 | 否 |
@@ -396,7 +403,7 @@ python tests/test_cache.py
 `httpx.ASGITransport` + `threading.Event` 闸门把构建冻住，
 用**事件**而不是 `sleep` 来断言构建期间 HTTP 仍可响应。
 
-CI 只跑不依赖 DeepSeek 的三个（`test_cache` / `test_async_documents` / `test_tools`），
+CI 只跑不依赖 DeepSeek 的四个（`test_cache` / `test_async_documents` / `test_tools` / `test_notes`），
 避免每次 push 都消耗 API 额度。端到端部分被拆到单独文件正是为了这个：
 `test_tools_endpoint.py` 需要真实的模型调用，所以不进 CI。
 

@@ -68,6 +68,26 @@ class Document(Base):
     # 解析失败时的原因
     error = Column(Text)
 
+    # pdf / note
+    #
+    # 笔记与 PDF 存在同一张表里，好处是来源追踪、状态流转、
+    # 索引失效这几条链完全复用，不用为笔记再写一套。
+    #
+    # server_default 是必须的：轻量迁移用 CreateColumn 生成 DDL，
+    # 它只会带上 server_default。若只用 Python 侧的 default，
+    # 生成的会是不带默认值的 NOT NULL 列，存量行会被填成空串而不是 'pdf'
+    kind = Column(
+        String(16),
+        default="pdf",
+        server_default="pdf",
+        nullable=False
+    )
+
+    # 笔记正文；PDF 行为空。
+    # 笔记的标题存在 filename 里，好让下游（chunks_store / 来源追踪）
+    # 继续用同一个字段作展示名，不必到处分支
+    content = Column(Text)
+
     created_at = Column(
         DateTime,
         default=utcnow
