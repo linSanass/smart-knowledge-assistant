@@ -64,7 +64,7 @@
   用版本号做失效（重建索引时自增，旧 key 自然读不到）；
   **Redis 不可用时自动降级**，不影响检索本身
 - **Docker**：`docker compose up` 起 mysql / redis / backend / frontend 四个服务
-- **CI**：push 与 PR 触发，跑后端依赖安装、Python 检查、两个不依赖外部 API 的测试，以及前端 lint 与构建
+- **CI**：push 与 PR 触发，跑后端依赖安装、Python 检查、三个不依赖外部 API 的测试，以及前端 lint 与构建
 
 ---
 
@@ -369,7 +369,7 @@ docker compose down -v            # 停止并清空数据库
 
 ## 测试
 
-9 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
+10 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
 
 ```bash
 cd backend
@@ -385,7 +385,8 @@ python tests/test_cache.py
 | `test_documents.py` | 多文档上传、索引、来源追踪、删除重建 | 是 |
 | `test_async_documents.py` | 异步构建：非阻塞、409 互斥、不丢上传、崩溃恢复、坏 PDF 隔离 | 否 |
 | `test_cache.py` | 缓存命中/失效、TTL、Redis 降级 | 否 |
-| `test_tools.py` | 工具单元与端到端选择 | 部分 |
+| `test_tools.py` | 工具单元：calculator 白名单求值、注册表、错误处理 | 否 |
+| `test_tools_endpoint.py` | 端到端：模型真的选中正确工具、轨迹可持久化 | 是 |
 | `test_agent.py` | 多步工具调用与轨迹持久化 | 是 |
 | `test_prompt.py` | RAG Prompt 结构与拒答行为 | 是 |
 | `test_sources.py` | 来源字段与可回溯 | 是 |
@@ -395,8 +396,9 @@ python tests/test_cache.py
 `httpx.ASGITransport` + `threading.Event` 闸门把构建冻住，
 用**事件**而不是 `sleep` 来断言构建期间 HTTP 仍可响应。
 
-CI 只跑不依赖 DeepSeek 的两个（`test_cache` / `test_async_documents`），
-避免每次 push 都消耗 API 额度。
+CI 只跑不依赖 DeepSeek 的三个（`test_cache` / `test_async_documents` / `test_tools`），
+避免每次 push 都消耗 API 额度。端到端部分被拆到单独文件正是为了这个：
+`test_tools_endpoint.py` 需要真实的模型调用，所以不进 CI。
 
 ---
 

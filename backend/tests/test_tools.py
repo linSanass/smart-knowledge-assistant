@@ -1,10 +1,14 @@
 """
-Function Calling 验证。
+工具单元验证（**不调用 DeepSeek**）。
 
-分三层：
-1. 工具本身（calculator 白名单求值、current_time、knowledge_search）
-2. 工具注册与错误处理
-3. 端到端：真实调用 DeepSeek，验证 Tool Selection → Tool → Final Answer
+覆盖：
+1. 工具本身：calculator 白名单求值、current_time、knowledge_search
+2. 工具注册表与错误处理
+
+端到端部分（真实调用 DeepSeek 验证 Tool Selection → Tool → Final Answer）
+在 tests/test_tools_endpoint.py。拆开是为了让 CI 能跑这个文件而不产生 API 费用。
+
+需要 MySQL 和 backend/uploads 下的 PDF：knowledge_search 要先把索引建起来。
 
 直接运行：
     cd backend && python tests/test_tools.py
@@ -21,8 +25,6 @@ sys.path.insert(
         )
     )
 )
-
-from fastapi.testclient import TestClient
 
 from services import tools
 
@@ -236,153 +238,6 @@ def check_registry():
     print("[OK] 计算异常被捕获:", outcome["content"][:40])
 
 
-# =========================
-# 5. 端到端
-# =========================
-
-def check_endpoint(client):
-
-    resp = client.get("/tools")
-
-    assert resp.status_code == 200
-
-    assert len(resp.json()["tools"]) == 3
-
-    # =========================
-    # 应该走 calculator
-    # =========================
-
-    resp = client.post(
-        "/tools/chat",
-        json={"message": "帮我算一下 (123 + 456) * 7 等于多少"}
-    )
-
-    assert resp.status_code == 200, resp.text
-
-    data = resp.json()
-
-    names = [c["name"] for c in data["tool_calls"]]
-
-    assert "calculator" in names, (
-        "未选择 calculator: " + str(data)
-    )
-
-    assert "4053" in data["answer"], data["answer"]
-
-    print(
-        "[OK] calculator 端到端:",
-        names,
-        "=>",
-        data["answer"][:40]
-    )
-
-    # =========================
-    # 应该走 current_time
-    # =========================
-
-    resp = client.post(
-        "/tools/chat",
-        json={"message": "现在几点了？"}
-    )
-
-    data = resp.json()
-
-    names = [c["name"] for c in data["tool_calls"]]
-
-    assert "current_time" in names, (
-        "未选择 current_time: " + str(data)
-    )
-
-    print("[OK] current_time 端到端:", data["answer"][:40])
-
-    # =========================
-    # 应该走 knowledge_search
-    # =========================
-
-    resp = client.post(
-        "/tools/chat",
-        json={
-            "message": "根据知识库，HybridCLR 是什么？"
-        }
-    )
-
-    data = resp.json()
-
-    names = [c["name"] for c in data["tool_calls"]]
-
-    assert "knowledge_search" in names, (
-        "未选择 knowledge_search: " + str(data)
-    )
-
-    assert data["answer"].strip()
-
-    print("[OK] knowledge_search 端到端:", data["answer"][:50])
-
-    # =========================
-    # 参数校验
-    # =========================
-
-    resp = client.post(
-        "/tools/chat",
-        json={"message": "   "}
-    )
-
-    assert resp.status_code == 400
-
-    print("[OK] 空消息返回 400")
-
-
-def check_conversation_mode(client):
-
-    conversation = client.post(
-        "/conversations",
-        json={}
-    ).json()
-
-    conversation_id = conversation["id"]
-
-    try:
-
-        resp = client.post(
-            f"/conversations/{conversation_id}/messages",
-            json={
-                "message": "算一下 88 * 3",
-                "mode": "tools"
-            }
-        )
-
-        assert resp.status_code == 200, resp.text
-
-        data = resp.json()
-
-        assert data["tool_calls"], "会话未返回工具轨迹"
-
-        assert "264" in data["answer"], data["answer"]
-
-        # 轨迹要能持久化
-        detail = client.get(
-            f"/conversations/{conversation_id}"
-        ).json()
-
-        assistant = [
-            m for m in detail["messages"]
-            if m["role"] == "assistant"
-        ][0]
-
-        assert assistant["tool_calls"] == data["tool_calls"], (
-            "工具轨迹未正确持久化"
-        )
-
-        print(
-            "[OK] 会话 tools 模式可持久化轨迹:",
-            [c["name"] for c in data["tool_calls"]]
-        )
-
-    finally:
-
-        client.delete(f"/conversations/{conversation_id}")
-
-
 def main():
 
     check_calculator()
@@ -392,14 +247,6 @@ def main():
     check_knowledge_search()
 
     check_registry()
-
-    from main import app
-
-    client = TestClient(app)
-
-    check_endpoint(client)
-
-    check_conversation_mode(client)
 
     print("\n全部测试通过")
 

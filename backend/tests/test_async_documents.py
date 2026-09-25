@@ -531,9 +531,60 @@ async def run():
 
     finally:
 
+        cleanup_test_documents(tmp_dir)
+
         pdf_service.UPLOAD_DIR = original_upload_dir
 
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def cleanup_test_documents(tmp_dir):
+    """
+    删掉本次测试产生的 documents 记录。
+
+    只清理 file_path 落在临时目录下的，不碰真实 uploads 里的文档。
+    不做这一步的话，临时目录一删，这些记录会在下次构建时
+    全被标成 failed，变成前端列表里一排「失败」的僵尸文档。
+    """
+
+    try:
+
+        from database import SessionLocal
+        from models import Document
+
+        db = SessionLocal()
+
+    except Exception:
+
+        return
+
+    try:
+
+        # 用 Python 过滤而不是 SQL LIKE：
+        # Windows 路径含反斜杠，而 MySQL 的 LIKE 默认把 \ 当转义符
+        stale = [
+            row
+            for row in db.query(Document).all()
+            if row.file_path
+            and row.file_path.startswith(tmp_dir)
+        ]
+
+        for row in stale:
+
+            db.delete(row)
+
+        if stale:
+
+            db.commit()
+
+    except Exception:
+
+        # 清理失败不应该盖掉测试结果
+        pass
+
+    finally:
+
+        db.close()
 
 
 def main():

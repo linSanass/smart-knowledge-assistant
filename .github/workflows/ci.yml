@@ -91,6 +91,7 @@ jobs:
           # UPLOAD_DIR 是相对路径 "uploads"，所以必须在 backend/ 下执行
           python tests/test_cache.py
           python tests/test_async_documents.py
+          python tests/test_tools.py
 
   # =========================
   # 前端
