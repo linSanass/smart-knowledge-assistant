@@ -24,6 +24,10 @@ from services.rag_service import (
     rag_chat
 )
 
+from routers.conversations import (
+    router as conversations_router
+)
+
 
 # =========================
 # 生命周期：启动时建表
@@ -67,6 +71,15 @@ app.add_middleware(
     allow_methods=["*"],
 
     allow_headers=["*"],
+)
+
+
+# =========================
+# 路由
+# =========================
+
+app.include_router(
+    conversations_router
 )
 
 

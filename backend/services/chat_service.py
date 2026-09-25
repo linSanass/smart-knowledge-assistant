@@ -70,6 +70,53 @@ def chat(message, role):
     return answer
 
 
+def chat_with_history(
+    message,
+    role,
+    history=None
+):
+    """
+    带显式历史的多轮聊天。
+
+    与 chat() 的区别：不依赖全局 chat_history，
+    历史由调用方（会话服务）从数据库读取后传入。
+    """
+
+    system_prompt = roles.get(
+        role,
+        "你是一名AI助手"
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt
+        }
+    ]
+
+    for item in (history or []):
+
+        if not item.get("content"):
+            continue
+
+        messages.append({
+            "role": item["role"],
+            "content": item["content"]
+        })
+
+    messages.append({
+        "role": "user",
+        "content": message
+    })
+
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=messages
+    )
+
+    return response.choices[0].message.content
+
+
 def clear_history():
 
     global chat_history
