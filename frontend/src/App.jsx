@@ -13,6 +13,8 @@ import {
   uploadDocument
 } from "./api";
 
+import SourceCard from "./SourceCard";
+
 const styles = {
 
   page: {
@@ -73,15 +75,6 @@ const styles = {
 
   bubble: {
     marginBottom: "15px"
-  },
-
-  source: {
-    border: "1px solid #555",
-    padding: "6px 8px",
-    marginTop: "6px",
-    fontSize: "12px",
-    color: "#bbb",
-    whiteSpace: "pre-wrap"
   }
 };
 
@@ -627,36 +620,39 @@ function App() {
 
                   {/* 参考资料 */}
                   {
-                    (msg.sources || []).map((source, i) => (
+                    (msg.sources || []).length > 0 && (
 
                       <div
-                        key={i}
                         style={{
-                          ...styles.source,
                           display: "inline-block",
                           textAlign: "left",
-                          maxWidth: "90%"
+                          width: "90%"
                         }}
                       >
-                        <b>
-                          来源 {i + 1}
-                          {
-                            // 兼容早期只存字符串的来源格式
-                            typeof source === "string"
-                              ? ""
-                              : ` · ${source.filename} 第${source.chunk_index + 1}块`
-                          }
-                        </b>
 
-                        <div>
-                          {
-                            typeof source === "string"
-                              ? source
-                              : source.chunk
-                          }
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#888",
+                            marginTop: "8px"
+                          }}
+                        >
+                          参考资料（{msg.sources.length}）
                         </div>
+
+                        {
+                          msg.sources.map((source, i) => (
+
+                            <SourceCard
+                              key={i}
+                              index={i}
+                              source={source}
+                            />
+                          ))
+                        }
+
                       </div>
-                    ))
+                    )
                   }
 
                 </div>

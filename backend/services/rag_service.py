@@ -303,6 +303,29 @@ def search_chunks(query, top_k=3):
 
 
 # =========================
+# 来源序列化
+# =========================
+
+def serialize_source(item):
+    """
+    RAG 引用来源的统一结构。
+
+    前端和 API 都依赖这几个字段：
+        filename     来源 PDF 文件名
+        chunk_index  在所属 PDF 中的块序号
+        chunk        命中的原文
+        document_id  对应 documents 表主键
+    """
+
+    return {
+        "document_id": item.get("document_id"),
+        "filename": item.get("filename"),
+        "chunk_index": item.get("chunk_index"),
+        "chunk": item.get("chunk")
+    }
+
+
+# =========================
 # 拼接上下文
 # =========================
 
@@ -405,11 +428,7 @@ def rag_chat(question: str):
     return {
         "answer": answer,
         "sources": [
-            {
-                "filename": item["filename"],
-                "chunk_index": item["chunk_index"],
-                "chunk": item["chunk"]
-            }
+            serialize_source(item)
             for item in docs
         ]
     }
