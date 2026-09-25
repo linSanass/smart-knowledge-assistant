@@ -782,6 +782,14 @@
   opacity: 0.7;
 }
 
+/* 展开后的片段列表：一个文件可能命中多段 */
+.source-detail {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .source-excerpt {
   margin-top: 12px;
   padding: 12px 14px;
@@ -794,6 +802,20 @@
   white-space: pre-wrap;
   max-height: 220px;
   overflow-y: auto;
+}
+
+/* 放进片段列表后，间距交给父容器的 gap */
+.source-detail .source-excerpt {
+  margin-top: 0;
+}
+
+.source-excerpt-idx {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
 }
 
 /* =========================
