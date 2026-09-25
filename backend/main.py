@@ -1,7 +1,11 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
+
+from database import init_db
 
 from services.chat_service import (
     chat,
@@ -22,13 +26,26 @@ from services.rag_service import (
 
 
 # =========================
+# 生命周期：启动时建表
+# =========================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    init_db()
+
+    yield
+
+
+# =========================
 # 创建 FastAPI
 # =========================
 
 app = FastAPI(
     title="Smart Knowledge Assistant",
     description="PDF RAG 知识库问答后端",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 

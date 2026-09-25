@@ -1,0 +1,159 @@
+from datetime import (
+    datetime,
+    timezone
+)
+
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text
+)
+
+from sqlalchemy.orm import relationship
+
+from database import Base
+
+
+def utcnow():
+
+    # 统一存 naive UTC，避免不同数据库对时区的处理差异
+    return datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
+
+
+# =========================
+# 知识库文档
+# =========================
+
+class Document(Base):
+
+    __tablename__ = "documents"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # 用户上传时的原始文件名
+    filename = Column(
+        String(255),
+        nullable=False,
+        index=True
+    )
+
+    # 磁盘上的保存路径
+    file_path = Column(
+        String(512),
+        nullable=False
+    )
+
+    # 解析出的文本块数量
+    chunk_count = Column(
+        Integer,
+        default=0
+    )
+
+    # pending / processing / ready / failed
+    status = Column(
+        String(32),
+        default="pending",
+        index=True
+    )
+
+    # 解析失败时的原因
+    error = Column(Text)
+
+    created_at = Column(
+        DateTime,
+        default=utcnow
+    )
+
+
+# =========================
+# 会话
+# =========================
+
+class Conversation(Base):
+
+    __tablename__ = "conversations"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    title = Column(
+        String(255),
+        default="新会话"
+    )
+
+    created_at = Column(
+        DateTime,
+        default=utcnow
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow,
+        index=True
+    )
+
+    messages = relationship(
+        "ChatMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.id"
+    )
+
+
+# =========================
+# 聊天消息
+# =========================
+
+class ChatMessage(Base):
+
+    __tablename__ = "chat_messages"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    conversation_id = Column(
+        Integer,
+        ForeignKey(
+            "conversations.id",
+            ondelete="CASCADE"
+        ),
+        nullable=False,
+        index=True
+    )
+
+    # user / assistant
+    role = Column(
+        String(32),
+        nullable=False
+    )
+
+    content = Column(Text)
+
+    # RAG 引用来源，JSON 字符串
+    sources = Column(Text)
+
+    created_at = Column(
+        DateTime,
+        default=utcnow
+    )
+
+    conversation = relationship(
+        "Conversation",
+        back_populates="messages"
+    )
