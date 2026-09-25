@@ -116,7 +116,7 @@ function KnowledgeDialog({
                     className="field-input"
                     value={title}
                     autoFocus
-                    placeholder="例如：Unity Addressables"
+                    placeholder="给这条知识起一个便于检索的标题"
                     onChange={(e) => setTitle(e.target.value)}
                   />
 
@@ -130,7 +130,7 @@ function KnowledgeDialog({
                     className="field-textarea"
                     value={content}
                     rows={7}
-                    placeholder="例如：Addressables 用于资源管理与热更新。"
+                    placeholder="写下正文。保存后会进入知识库，问答时可作为参考来源被引用"
                     onChange={(e) => setContent(e.target.value)}
                   />
 
