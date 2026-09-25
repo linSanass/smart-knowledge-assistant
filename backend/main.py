@@ -1,11 +1,18 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    UploadFile
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os
+from sqlalchemy.orm import Session
 
-from database import init_db
+from database import get_db, init_db
+
+from services import document_service
 
 from services.chat_service import (
     chat,
@@ -26,6 +33,10 @@ from services.rag_service import (
 
 from routers.conversations import (
     router as conversations_router
+)
+
+from routers.documents import (
+    router as documents_router
 )
 
 
@@ -80,6 +91,10 @@ app.add_middleware(
 
 app.include_router(
     conversations_router
+)
+
+app.include_router(
+    documents_router
 )
 
 
@@ -155,33 +170,34 @@ def clear():
 
 @app.post("/upload")
 async def upload_pdf(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
 ):
+    """
+    保留的旧上传接口。
 
-    # 创建 uploads 文件夹
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
+    为了和多文档知识库保持一致，这里同样会把文件登记进 documents 表。
+    新代码请使用 POST /documents。
+    """
 
-    # 保存路径
-    save_path = os.path.join(
-        "uploads",
+    content = await file.read()
+
+    file_path = document_service.save_upload(
+        content,
         file.filename
     )
 
-    # 保存 PDF
-    with open(
-        save_path,
-        "wb"
-    ) as buffer:
-
-        content = await file.read()
-
-        buffer.write(content)
+    document = document_service.create_document(
+        db,
+        file.filename,
+        file_path
+    )
 
     return {
         "filename": file.filename,
+        "document": document_service.serialize_document(
+            document
+        ),
         "message": "上传成功"
     }
 

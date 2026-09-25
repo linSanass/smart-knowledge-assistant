@@ -4,10 +4,13 @@ import {
   buildRag,
   createConversation,
   deleteConversation,
+  deleteDocument,
   getConversation,
+  getIndexStatus,
   listConversations,
+  listDocuments,
   sendMessage,
-  uploadPdf
+  uploadDocument
 } from "./api";
 
 const styles = {
@@ -96,16 +99,34 @@ function App() {
 
   const [loading, setLoading] = useState(false);
 
-  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfFiles, setPdfFiles] = useState([]);
 
-  const [knowledgeBuilt, setKnowledgeBuilt] = useState(false);
+  const [documents, setDocuments] = useState([]);
+
+  const [indexStatus, setIndexStatus] = useState({
+    built: false,
+    chunk_count: 0,
+    documents: 0
+  });
+
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
 
   const messageBoxRef = useRef(null);
+
+  // 并发请求的序号，用来丢弃过期响应
+  const conversationsSeq = useRef(0);
+
+  const knowledgeSeq = useRef(0);
 
   // 加载会话列表
   const refreshConversations = async () => {
 
+    const seq = ++conversationsSeq.current;
+
     const data = await listConversations();
+
+    // 已经有更新的请求发出，这次结果作废
+    if (seq !== conversationsSeq.current) return data;
 
     setConversations(data);
 
@@ -116,6 +137,10 @@ function App() {
 
     refreshConversations().catch(
       (error) => alert("加载会话失败: " + error.message)
+    );
+
+    refreshKnowledge().catch(
+      (error) => alert("加载知识库失败: " + error.message)
     );
 
   }, []);
@@ -186,10 +211,31 @@ function App() {
     }
   };
 
-  // 上传PDF
+  // 刷新知识库（文档列表 + 索引状态）
+  const refreshKnowledge = async () => {
+
+    const seq = ++knowledgeSeq.current;
+
+    const [docs, status] = await Promise.all([
+      listDocuments(),
+      getIndexStatus()
+    ]);
+
+    // 文档列表和索引状态必须来自同一次刷新，
+    // 否则并发刷新时会出现「状态行已更新、文档行还是旧的」
+    if (seq !== knowledgeSeq.current) return { docs, status };
+
+    setDocuments(docs);
+
+    setIndexStatus(status);
+
+    return { docs, status };
+  };
+
+  // 上传PDF（支持多选）
   const handleUpload = async () => {
 
-    if (!pdfFile) {
+    if (pdfFiles.length === 0) {
 
       alert("请选择PDF");
 
@@ -198,9 +244,18 @@ function App() {
 
     try {
 
-      const data = await uploadPdf(pdfFile);
+      for (const file of pdfFiles) {
 
-      alert(data.message);
+        await uploadDocument(file);
+      }
+
+      const uploaded = pdfFiles.length;
+
+      setPdfFiles([]);
+
+      await refreshKnowledge();
+
+      alert(`成功上传 ${uploaded} 个PDF，请点击「构建知识库」`);
 
     } catch (error) {
 
@@ -208,18 +263,43 @@ function App() {
     }
   };
 
-  // 构建知识库
+  // 删除PDF
+  const handleDeleteDocument = async (id, filename) => {
+
+    if (!window.confirm(`确认删除 ${filename}?`)) return;
+
+    try {
+
+      await deleteDocument(id);
+
+      await refreshKnowledge();
+
+    } catch (error) {
+
+      alert("删除失败: " + error.message);
+    }
+  };
+
+  // 构建 / 重建知识库
   const handleBuildRag = async () => {
 
     try {
 
       const data = await buildRag();
 
-      alert(
-        `知识库构建完成，共${data.chunk_count}个Chunk`
-      );
+      await refreshKnowledge();
 
-      setKnowledgeBuilt(true);
+      if (data.chunk_count === 0) {
+
+        alert(data.message);
+
+        return;
+      }
+
+      alert(
+        `知识库构建完成：${data.documents} 个文档，` +
+        `共 ${data.chunk_count} 个 Chunk`
+      );
 
     } catch (error) {
 
@@ -399,36 +479,121 @@ function App() {
           <hr />
 
           {/* 知识库 */}
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(e) => setPdfFile(e.target.files[0])}
-          />
-
-          <button onClick={handleUpload}>
-            上传PDF
-          </button>
-
-          <button
-            onClick={handleBuildRag}
-            style={{ marginLeft: "10px" }}
-          >
-            构建知识库
-          </button>
-
-          <span
+          <div
             style={{
-              marginLeft: "10px",
-              fontSize: "13px",
-              color: knowledgeBuilt ? "#7ddc7d" : "#999"
+              borderWidth: "1px",
+              borderStyle: "solid",
+              borderColor: "#666",
+              padding: "10px",
+              marginBottom: "10px"
             }}
           >
-            {
-              knowledgeBuilt
-                ? "知识库已构建"
-                : "知识库未构建"
-            }
-          </span>
+
+            <b>知识库</b>
+
+            <div style={{ marginTop: "8px" }}>
+              <input
+                type="file"
+                accept=".pdf"
+                multiple
+                onChange={(e) =>
+                  setPdfFiles(Array.from(e.target.files))
+                }
+              />
+
+              <button
+                onClick={handleUpload}
+                style={{ marginLeft: "10px" }}
+              >
+                上传PDF
+              </button>
+
+              <button
+                onClick={handleBuildRag}
+                style={{ marginLeft: "10px" }}
+              >
+                构建知识库
+              </button>
+            </div>
+
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "13px",
+                color: indexStatus.built ? "#7ddc7d" : "#999"
+              }}
+            >
+              {
+                indexStatus.built
+                  ? `索引已构建：${indexStatus.documents} 个文档 / ${indexStatus.chunk_count} 个 Chunk`
+                  : "索引未构建"
+              }
+            </div>
+
+            {/* 文档列表 */}
+            <div style={{ marginTop: "8px" }}>
+
+              {
+                documents.length === 0 && (
+                  <span style={{ fontSize: "13px", color: "#888" }}>
+                    还没有 PDF
+                  </span>
+                )
+              }
+
+              {
+                documents.map((doc) => (
+
+                  <div
+                    key={doc.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      fontSize: "13px",
+                      padding: "4px 0"
+                    }}
+                  >
+
+                    <span style={{ flex: 1 }}>
+                      {doc.filename}
+                    </span>
+
+                    <span
+                      style={{
+                        color:
+                          doc.status === "ready"
+                            ? "#7ddc7d"
+                            : doc.status === "failed"
+                              ? "#ff7b7b"
+                              : "#ddd"
+                      }}
+                    >
+                      {
+                        doc.status === "ready"
+                          ? `${doc.chunk_count} chunks`
+                          : doc.status === "failed"
+                            ? `失败: ${doc.error || ""}`
+                            : "待索引"
+                      }
+                    </span>
+
+                    <button
+                      title="删除文档"
+                      onClick={() =>
+                        handleDeleteDocument(doc.id, doc.filename)
+                      }
+                    >
+                      ×
+                    </button>
+
+                  </div>
+                ))
+              }
+
+            </div>
+
+          </div>
 
           <hr />
 
@@ -473,8 +638,23 @@ function App() {
                           maxWidth: "90%"
                         }}
                       >
-                        <b>来源 {i + 1}</b>
-                        <div>{source}</div>
+                        <b>
+                          来源 {i + 1}
+                          {
+                            // 兼容早期只存字符串的来源格式
+                            typeof source === "string"
+                              ? ""
+                              : ` · ${source.filename} 第${source.chunk_index + 1}块`
+                          }
+                        </b>
+
+                        <div>
+                          {
+                            typeof source === "string"
+                              ? source
+                              : source.chunk
+                          }
+                        </div>
                       </div>
                     ))
                   }

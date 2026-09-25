@@ -82,19 +82,37 @@ export function sendMessage(id, message, mode, role) {
 }
 
 // =========================
-// 知识库
+// 知识库（多文档）
 // =========================
 
-export async function uploadPdf(file) {
+export function listDocuments() {
+
+  return request("/documents");
+}
+
+export function getIndexStatus() {
+
+  return request("/documents/status");
+}
+
+export async function uploadDocument(file) {
 
   const formData = new FormData();
 
   formData.append("file", file);
 
-  return request("/upload", {
+  return request("/documents", {
     method: "POST",
     body: formData
   });
+}
+
+export function deleteDocument(id) {
+
+  return request(
+    `/documents/${id}`,
+    { method: "DELETE" }
+  );
 }
 
 export function buildRag() {

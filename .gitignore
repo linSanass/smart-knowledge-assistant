@@ -228,3 +228,7 @@ dist/
 
 # Environment
 .env
+
+# 用户上传的 PDF（仓库内保留一个测试样例）
+backend/uploads/*
+!backend/uploads/Unity_RAG_Test_Document.pdf
