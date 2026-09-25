@@ -279,7 +279,7 @@ def send_message(
     conversation,
     message,
     mode=MODE_CHAT,
-    role="unity"
+    role="general"
 ):
     """
     完整流程：

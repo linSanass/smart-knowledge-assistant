@@ -102,7 +102,7 @@ function App() {
 
   const [message, setMessage] = useState("");
 
-  const [role, setRole] = useState("unity");
+  const [role, setRole] = useState("general");
 
   const [loading, setLoading] = useState(false);
 
@@ -527,10 +527,11 @@ function App() {
             value={role}
             onChange={(e) => setRole(e.target.value)}
           >
-            <option value="unity">Unity导师</option>
-            <option value="cpp">C++导师</option>
-            <option value="ai">AI全栈导师</option>
-            <option value="digital">数字孪生专家</option>
+            <option value="general">通用助手</option>
+            <option value="coding">编程助手</option>
+            <option value="translation">翻译助手</option>
+            <option value="writing">写作助手</option>
+            <option value="tutor">学习导师</option>
           </select>
 
           <span

@@ -35,8 +35,8 @@ class MessageCreate(BaseModel):
     # chat / rag / tools
     mode: str = conv.MODE_CHAT
 
-    # 仅 chat 模式使用
-    role: str = "unity"
+    # 仅 chat 模式使用；未知取值会退回 general
+    role: str = "general"
 
 
 # =========================

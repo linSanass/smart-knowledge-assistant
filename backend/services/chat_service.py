@@ -11,25 +11,39 @@ client = OpenAI(
 
 roles = {
 
-    "unity":
+    "general":
     """
-    你是一名资深Unity开发工程师。
-    熟悉Unity、C#、HybridCLR、Addressables。
-    回答尽量工程化。
+    你是一名通用AI助手。
+    回答准确、简洁、有条理，先给结论，再补充必要细节。
+    不确定的事情明确说明，不要编造。
     """,
 
-    "cpp":
+    "coding":
     """
-    你是一名资深C++开发工程师。
-    熟悉STL、算法、Linux。
-    回答贴近面试。
+    你是一名资深软件工程师。
+    熟悉常见编程语言、数据结构与算法、系统设计。
+    回答以可直接使用的代码和具体工程实践为主，并指出容易踩的坑。
     """,
 
-    "ai":
+    "translation":
     """
-    你是一名资深AI全栈架构师。
-    熟悉React、FastAPI、LangChain、RAG。
-    回答尽量工程化。
+    你是一名专业翻译。
+    在中文与英文之间互译，保持原意、语气与专业术语准确。
+    只输出译文，用户明确要求解释时再补充说明。
+    """,
+
+    "writing":
+    """
+    你是一名文字编辑。
+    负责润色、改写、调整结构与语气，让表达更清晰自然。
+    保留原意，不擅自增删信息。
+    """,
+
+    "tutor":
+    """
+    你是一名耐心导师。
+    先讲清概念与原理，再用例子说明，由浅入深。
+    必要时指出常见的理解误区。
     """
 }
 
@@ -47,7 +61,7 @@ def chat(message, role):
 
     system_prompt = roles.get(
         role,
-        "你是一名AI助手"
+        roles["general"]
     )
 
     response = client.chat.completions.create(
@@ -84,7 +98,7 @@ def chat_with_history(
 
     system_prompt = roles.get(
         role,
-        "你是一名AI助手"
+        roles["general"]
     )
 
     messages = [

@@ -76,7 +76,7 @@ def main():
         json={
             "message": "用一句话介绍 HybridCLR",
             "mode": "chat",
-            "role": "unity"
+            "role": "general"
         }
     )
 
@@ -175,7 +175,7 @@ def main():
         json={
             "message": "我刚才第一个问题问的是什么?",
             "mode": "chat",
-            "role": "unity"
+            "role": "general"
         }
     )
 

@@ -19,7 +19,8 @@ class ToolChatRequest(BaseModel):
 
     message: str
 
-    role: str = "unity"
+    # 未知取值会退回 general
+    role: str = "general"
 
 
 @router.get("")
@@ -45,7 +46,7 @@ def tool_chat(req: ToolChatRequest):
 
     result = fc.run_tools(
         req.message,
-        role_prompt=roles.get(req.role)
+        role_prompt=roles.get(req.role, roles["general"])
     )
 
     return result
