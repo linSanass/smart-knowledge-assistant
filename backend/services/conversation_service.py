@@ -8,6 +8,8 @@ from models import (
 
 from services import chat_service
 
+from services import function_calling_service
+
 from services.rag_service import rag_chat
 
 
@@ -18,6 +20,15 @@ from services.rag_service import rag_chat
 MODE_CHAT = "chat"
 
 MODE_RAG = "rag"
+
+# Function Calling 模式
+MODE_TOOLS = "tools"
+
+MODES = (
+    MODE_CHAT,
+    MODE_RAG,
+    MODE_TOOLS
+)
 
 # 送给 LLM 的历史消息条数上限
 HISTORY_LIMIT = 20
@@ -41,6 +52,12 @@ def serialize_message(message):
         "sources": (
             json.loads(message.sources)
             if message.sources
+            else []
+        ),
+
+        "tool_calls": (
+            json.loads(message.tool_calls)
+            if message.tool_calls
             else []
         ),
 
@@ -110,7 +127,8 @@ def add_message(
     conversation_id,
     role,
     content,
-    sources=None
+    sources=None,
+    tool_calls=None
 ):
 
     message = ChatMessage(
@@ -122,6 +140,12 @@ def add_message(
         sources=(
             json.dumps(sources, ensure_ascii=False)
             if sources
+            else None
+        ),
+
+        tool_calls=(
+            json.dumps(tool_calls, ensure_ascii=False)
+            if tool_calls
             else None
         )
     )
@@ -287,8 +311,10 @@ def send_message(
             message
         )
 
-    # 3. 调用 LLM 或 RAG
+    # 3. 调用 LLM / RAG / Function Calling
     sources = []
+
+    tool_calls = []
 
     if mode == MODE_RAG:
 
@@ -301,6 +327,24 @@ def send_message(
 
         sources = result.get(
             "sources",
+            []
+        )
+
+    elif mode == MODE_TOOLS:
+
+        result = function_calling_service.run_tools(
+            message,
+            role_prompt=chat_service.roles.get(role),
+            history=history
+        )
+
+        answer = result.get(
+            "answer",
+            ""
+        )
+
+        tool_calls = result.get(
+            "tool_calls",
             []
         )
 
@@ -318,7 +362,8 @@ def send_message(
         conversation.id,
         "assistant",
         answer,
-        sources
+        sources,
+        tool_calls
     )
 
     # 5. 显式刷新时间，让它排到会话列表最前
@@ -334,6 +379,7 @@ def send_message(
         "title": conversation.title,
         "answer": answer,
         "sources": sources,
+        "tool_calls": tool_calls,
         "user_message": serialize_message(
             user_message
         ),

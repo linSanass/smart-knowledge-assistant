@@ -10,6 +10,7 @@ sqlalchemy==2.1.0
 pymysql==1.2.3
 
 redis==8.1.0
+tzdata==2026.4
 
 pypdf==6.19.0
 langchain-text-splitters==1.1.2

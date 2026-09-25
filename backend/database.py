@@ -2,12 +2,18 @@ import os
 
 from dotenv import load_dotenv
 
-from sqlalchemy import create_engine
+from sqlalchemy import (
+    create_engine,
+    inspect,
+    text
+)
 
 from sqlalchemy.orm import (
     declarative_base,
     sessionmaker
 )
+
+from sqlalchemy.schema import CreateColumn
 
 load_dotenv()
 
@@ -83,3 +89,48 @@ def init_db():
     from models import ChatMessage  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+
+    sync_columns()
+
+
+def sync_columns():
+    """
+    轻量迁移。
+
+    create_all 只会建缺失的表，不会给已存在的表补列，
+    所以这里对比模型与真实表结构，自动 ADD COLUMN。
+    """
+
+    inspector = inspect(engine)
+
+    with engine.begin() as conn:
+
+        for table in Base.metadata.sorted_tables:
+
+            if not inspector.has_table(table.name):
+
+                continue
+
+            existing = {
+                column["name"]
+                for column in inspector.get_columns(
+                    table.name
+                )
+            }
+
+            for column in table.columns:
+
+                if column.name in existing:
+
+                    continue
+
+                ddl = CreateColumn(column).compile(
+                    dialect=engine.dialect
+                )
+
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table.name} "
+                        f"ADD COLUMN {ddl}"
+                    )
+                )

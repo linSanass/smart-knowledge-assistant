@@ -75,6 +75,20 @@ const styles = {
 
   bubble: {
     marginBottom: "15px"
+  },
+
+  toolCall: {
+    display: "inline-block",
+    textAlign: "left",
+    width: "90%",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "#5b4b8a",
+    borderRadius: "4px",
+    padding: "8px",
+    marginTop: "6px",
+    fontSize: "12px",
+    color: "#cbb8ff"
   }
 };
 
@@ -102,8 +116,6 @@ function App() {
     documents: 0
   });
 
-  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
-
   const messageBoxRef = useRef(null);
 
   // 并发请求的序号，用来丢弃过期响应
@@ -124,6 +136,27 @@ function App() {
     setConversations(data);
 
     return data;
+  };
+
+  // 刷新知识库（文档列表 + 索引状态）
+  const refreshKnowledge = async () => {
+
+    const seq = ++knowledgeSeq.current;
+
+    const [docs, status] = await Promise.all([
+      listDocuments(),
+      getIndexStatus()
+    ]);
+
+    // 文档列表和索引状态必须来自同一次刷新，
+    // 否则并发刷新时会出现「状态行已更新、文档行还是旧的」
+    if (seq !== knowledgeSeq.current) return { docs, status };
+
+    setDocuments(docs);
+
+    setIndexStatus(status);
+
+    return { docs, status };
   };
 
   useEffect(() => {
@@ -202,27 +235,6 @@ function App() {
 
       alert("删除失败: " + error.message);
     }
-  };
-
-  // 刷新知识库（文档列表 + 索引状态）
-  const refreshKnowledge = async () => {
-
-    const seq = ++knowledgeSeq.current;
-
-    const [docs, status] = await Promise.all([
-      listDocuments(),
-      getIndexStatus()
-    ]);
-
-    // 文档列表和索引状态必须来自同一次刷新，
-    // 否则并发刷新时会出现「状态行已更新、文档行还是旧的」
-    if (seq !== knowledgeSeq.current) return { docs, status };
-
-    setDocuments(docs);
-
-    setIndexStatus(status);
-
-    return { docs, status };
   };
 
   // 上传PDF（支持多选）
@@ -345,7 +357,8 @@ function App() {
         {
           role: "assistant",
           content: data.answer,
-          sources: data.sources || []
+          sources: data.sources || [],
+          tool_calls: data.tool_calls || []
         }
       ]);
 
@@ -618,6 +631,37 @@ function App() {
                     {msg.content}
                   </div>
 
+                  {/* Function Calling 轨迹 */}
+                  {
+                    (msg.tool_calls || []).map((call, i) => (
+
+                      <div
+                        key={i}
+                        style={styles.toolCall}
+                      >
+                        <b>
+                          🔧 {call.name}
+                        </b>
+
+                        <div style={{ color: "#aaa" }}>
+                          参数：{JSON.stringify(call.arguments)}
+                        </div>
+
+                        <div
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            maxHeight: "80px",
+                            overflowY: "auto"
+                          }}
+                        >
+                          结果：{
+                            String(call.result).slice(0, 300)
+                          }
+                        </div>
+                      </div>
+                    ))
+                  }
+
                   {/* 参考资料 */}
                   {
                     (msg.sources || []).length > 0 && (
@@ -687,6 +731,14 @@ function App() {
             style={{ marginLeft: "10px" }}
           >
             知识库问答
+          </button>
+
+          <button
+            onClick={() => handleSend("tools")}
+            disabled={loading}
+            style={{ marginLeft: "10px" }}
+          >
+            工具模式
           </button>
 
         </div>

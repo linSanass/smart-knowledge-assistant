@@ -148,6 +148,9 @@ class ChatMessage(Base):
     # RAG 引用来源，JSON 字符串
     sources = Column(Text)
 
+    # Function Calling 轨迹，JSON 字符串
+    tool_calls = Column(Text)
+
     created_at = Column(
         DateTime,
         default=utcnow

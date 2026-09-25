@@ -32,7 +32,7 @@ class MessageCreate(BaseModel):
 
     message: str
 
-    # chat / rag
+    # chat / rag / tools
     mode: str = conv.MODE_CHAT
 
     # 仅 chat 模式使用
@@ -146,14 +146,14 @@ def send_message(
             detail="消息不能为空"
         )
 
-    if req.mode not in (
-        conv.MODE_CHAT,
-        conv.MODE_RAG
-    ):
+    if req.mode not in conv.MODES:
 
         raise HTTPException(
             status_code=400,
-            detail="mode 只能是 chat 或 rag"
+            detail=(
+                "mode 只能是 "
+                + " / ".join(conv.MODES)
+            )
         )
 
     conversation = conv.get_conversation(

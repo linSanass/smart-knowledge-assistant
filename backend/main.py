@@ -39,6 +39,10 @@ from routers.documents import (
     router as documents_router
 )
 
+from routers.tools import (
+    router as tools_router
+)
+
 
 # =========================
 # 生命周期：启动时建表
@@ -95,6 +99,10 @@ app.include_router(
 
 app.include_router(
     documents_router
+)
+
+app.include_router(
+    tools_router
 )
 
 
