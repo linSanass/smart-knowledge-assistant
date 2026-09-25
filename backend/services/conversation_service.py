@@ -8,6 +8,8 @@ from models import (
 
 from services import chat_service
 
+from services import agent_service
+
 from services import function_calling_service
 
 from services.rag_service import rag_chat
@@ -24,10 +26,14 @@ MODE_RAG = "rag"
 # Function Calling 模式
 MODE_TOOLS = "tools"
 
+# Agent 模式
+MODE_AGENT = "agent"
+
 MODES = (
     MODE_CHAT,
     MODE_RAG,
-    MODE_TOOLS
+    MODE_TOOLS,
+    MODE_AGENT
 )
 
 # 送给 LLM 的历史消息条数上限
@@ -330,9 +336,15 @@ def send_message(
             []
         )
 
-    elif mode == MODE_TOOLS:
+    elif mode in (MODE_TOOLS, MODE_AGENT):
 
-        result = function_calling_service.run_tools(
+        runner = (
+            agent_service.run_agent
+            if mode == MODE_AGENT
+            else function_calling_service.run_tools
+        )
+
+        result = runner(
             message,
             role_prompt=chat_service.roles.get(role),
             history=history

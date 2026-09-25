@@ -61,12 +61,13 @@ def run_tools(
     max_iterations=MAX_ITERATIONS
 ):
     """
-    带工具的多轮调用。
+    Function Calling 入口。
 
     返回:
         {
             "answer": 最终回答,
-            "tool_calls": [ {name, arguments, result, ok}, ... ]
+            "tool_calls": [ {step, name, arguments, result, ok}, ... ],
+            "iterations": 实际用掉的轮数
         }
     """
 
@@ -75,6 +76,27 @@ def run_tools(
     if role_prompt:
 
         system_prompt = system_prompt + "\n\n" + role_prompt
+
+    return run_tool_loop(
+        message,
+        system_prompt=system_prompt,
+        history=history,
+        max_iterations=max_iterations
+    )
+
+
+def run_tool_loop(
+    message,
+    system_prompt,
+    history=None,
+    max_iterations=MAX_ITERATIONS
+):
+    """
+    User -> LLM -> Tool Selection -> Tool -> Tool Result -> LLM -> Final Answer
+
+    Function Calling 和 Agent 共用这个循环，
+    区别只在 system_prompt 与 max_iterations。
+    """
 
     messages = [
         {
@@ -100,7 +122,11 @@ def run_tools(
 
     executed = []
 
-    for _ in range(max_iterations):
+    iterations = 0
+
+    for iteration in range(max_iterations):
+
+        iterations = iteration + 1
 
         response = client.chat.completions.create(
             model=MODEL,
@@ -118,7 +144,8 @@ def run_tools(
 
             return {
                 "answer": choice.content or "",
-                "tool_calls": executed
+                "tool_calls": executed,
+                "iterations": iterations
             }
 
         # 把模型这一轮的决策写回上下文
@@ -149,6 +176,8 @@ def run_tools(
             )
 
             executed.append({
+                # 第几步调用，方便前端按顺序展示
+                "step": len(executed) + 1,
                 "name": name,
                 "arguments": parse_arguments(
                     call.function.arguments
@@ -174,7 +203,8 @@ def run_tools(
 
     return {
         "answer": final.choices[0].message.content or "",
-        "tool_calls": executed
+        "tool_calls": executed,
+        "iterations": iterations
     }
 
 

@@ -312,7 +312,7 @@ function App() {
     }
   };
 
-  // 发送消息：mode 为 chat 或 rag
+  // 发送消息：mode 为 chat / rag / tools / agent
   const handleSend = async (mode) => {
 
     const text = message.trim();
@@ -640,6 +640,11 @@ function App() {
                         style={styles.toolCall}
                       >
                         <b>
+                          {
+                            typeof call.step === "number"
+                              ? `第 ${call.step} 步 · `
+                              : ""
+                          }
                           🔧 {call.name}
                         </b>
 
@@ -739,6 +744,14 @@ function App() {
             style={{ marginLeft: "10px" }}
           >
             工具模式
+          </button>
+
+          <button
+            onClick={() => handleSend("agent")}
+            disabled={loading}
+            style={{ marginLeft: "10px" }}
+          >
+            Agent
           </button>
 
         </div>

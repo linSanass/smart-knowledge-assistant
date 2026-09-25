@@ -43,6 +43,10 @@ from routers.tools import (
     router as tools_router
 )
 
+from routers.agent import (
+    router as agent_router
+)
+
 
 # =========================
 # 生命周期：启动时建表
@@ -103,6 +107,10 @@ app.include_router(
 
 app.include_router(
     tools_router
+)
+
+app.include_router(
+    agent_router
 )
 
 
