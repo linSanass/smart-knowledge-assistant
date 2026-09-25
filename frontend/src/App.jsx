@@ -1,354 +1,521 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  buildRag,
+  createConversation,
+  deleteConversation,
+  getConversation,
+  listConversations,
+  sendMessage,
+  uploadPdf
+} from "./api";
+
+const styles = {
+
+  page: {
+    width: "1100px",
+    margin: "0 auto",
+    padding: "20px",
+    color: "white"
+  },
+
+  layout: {
+    display: "flex",
+    gap: "20px",
+    alignItems: "flex-start"
+  },
+
+  sidebar: {
+    width: "260px",
+    flexShrink: 0
+  },
+
+  conversation: {
+    // 用长写属性，便于下面只覆盖 borderColor 而不混用简写
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "#666",
+    padding: "10px",
+    marginBottom: "8px",
+    cursor: "pointer",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px"
+  },
+
+  conversationActive: {
+    borderColor: "#4a9eff",
+    background: "#1b3a5c"
+  },
+
+  conversationTitle: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "14px"
+  },
+
+  main: {
+    flex: 1,
+    minWidth: 0
+  },
+
+  messageBox: {
+    border: "1px solid #666",
+    height: "460px",
+    overflowY: "auto",
+    padding: "10px"
+  },
+
+  bubble: {
+    marginBottom: "15px"
+  },
+
+  source: {
+    border: "1px solid #555",
+    padding: "6px 8px",
+    marginTop: "6px",
+    fontSize: "12px",
+    color: "#bbb",
+    whiteSpace: "pre-wrap"
+  }
+};
 
 function App() {
+
+  const [conversations, setConversations] = useState([]);
+
+  const [currentId, setCurrentId] = useState(null);
+
+  const [messages, setMessages] = useState([]);
 
   const [message, setMessage] = useState("");
 
   const [role, setRole] = useState("unity");
 
+  const [loading, setLoading] = useState(false);
+
   const [pdfFile, setPdfFile] = useState(null);
 
-  const [messages, setMessages] = useState([]);
+  const [knowledgeBuilt, setKnowledgeBuilt] = useState(false);
 
-  const [sources, setSources] = useState([]);
+  const messageBoxRef = useRef(null);
 
-  const [knowledgeBuilt, setKnowledgeBuilt] =
-    useState(false);
+  // 加载会话列表
+  const refreshConversations = async () => {
 
-  // 上传PDF
-  const uploadPdf = async () => {
+    const data = await listConversations();
 
-    if (!pdfFile) {
-      alert("请选择PDF");
+    setConversations(data);
+
+    return data;
+  };
+
+  useEffect(() => {
+
+    refreshConversations().catch(
+      (error) => alert("加载会话失败: " + error.message)
+    );
+
+  }, []);
+
+  // 切换会话时加载历史消息
+  useEffect(() => {
+
+    if (currentId === null) {
+
+      setMessages([]);
+
       return;
     }
 
-    const formData = new FormData();
+    getConversation(currentId)
+      .then((data) => setMessages(data.messages || []))
+      .catch((error) => alert("加载历史失败: " + error.message));
 
-    formData.append(
-      "file",
-      pdfFile
-    );
+  }, [currentId]);
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/upload",
-      {
-        method: "POST",
-        body: formData
-      }
-    );
+  // 新消息自动滚动到底部
+  useEffect(() => {
 
-    const data = await response.json();
+    const box = messageBoxRef.current;
 
-    alert(data.message);
+    if (box) box.scrollTop = box.scrollHeight;
+
+  }, [messages]);
+
+  // 新建会话
+  const handleNewConversation = async () => {
+
+    try {
+
+      const conversation = await createConversation();
+
+      setConversations(prev => [conversation, ...prev]);
+
+      setCurrentId(conversation.id);
+
+    } catch (error) {
+
+      alert("新建会话失败: " + error.message);
+    }
+  };
+
+  // 删除会话
+  const handleDeleteConversation = async (event, id) => {
+
+    // 点击删除按钮时不要触发切换会话
+    event.stopPropagation();
+
+    if (!window.confirm("确认删除该会话?")) return;
+
+    try {
+
+      await deleteConversation(id);
+
+      setConversations(prev =>
+        prev.filter(c => c.id !== id)
+      );
+
+      if (currentId === id) setCurrentId(null);
+
+    } catch (error) {
+
+      alert("删除失败: " + error.message);
+    }
+  };
+
+  // 上传PDF
+  const handleUpload = async () => {
+
+    if (!pdfFile) {
+
+      alert("请选择PDF");
+
+      return;
+    }
+
+    try {
+
+      const data = await uploadPdf(pdfFile);
+
+      alert(data.message);
+
+    } catch (error) {
+
+      alert("上传失败: " + error.message);
+    }
   };
 
   // 构建知识库
-  const buildRag = async () => {
+  const handleBuildRag = async () => {
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/build-rag"
-    );
+    try {
 
-    const data = await response.json();
+      const data = await buildRag();
 
-    alert(
-      `知识库构建完成，共${data.chunk_count}个Chunk`
-    );
+      alert(
+        `知识库构建完成，共${data.chunk_count}个Chunk`
+      );
 
-    setKnowledgeBuilt(true);
+      setKnowledgeBuilt(true);
+
+    } catch (error) {
+
+      alert("构建失败: " + error.message);
+    }
   };
 
-  // 普通聊天
-  const sendMessage = async () => {
+  // 发送消息：mode 为 chat 或 rag
+  const handleSend = async (mode) => {
 
-    if (!message.trim()) return;
+    const text = message.trim();
 
-    const currentMessage = message;
+    if (!text || loading) return;
 
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "user",
-        content: currentMessage
-      }
-    ]);
+    setLoading(true);
 
     setMessage("");
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/chat",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
-        body: JSON.stringify({
-          message: currentMessage,
-          role: role
-        })
+    // 还没有会话时先自动建一个
+    let conversationId = currentId;
+
+    try {
+
+      if (conversationId === null) {
+
+        const conversation = await createConversation();
+
+        conversationId = conversation.id;
+
+        setCurrentId(conversationId);
+
+        setConversations(prev => [conversation, ...prev]);
       }
-    );
 
-    const data = await response.json();
+      // 乐观渲染用户消息
+      setMessages(prev => [
+        ...prev,
+        { role: "user", content: text }
+      ]);
 
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "assistant",
-        content: data.answer
-      }
-    ]);
-  };
+      const data = await sendMessage(
+        conversationId,
+        text,
+        mode,
+        role
+      );
 
-  // RAG问答
-  const askKnowledge = async () => {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.answer,
+          sources: data.sources || []
+        }
+      ]);
 
-    if (!message.trim()) return;
+      // 标题可能刚由首条消息生成，刷新列表
+      await refreshConversations();
 
-    const currentMessage = message;
+    } catch (error) {
 
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "user",
-        content: currentMessage
-      }
-    ]);
+      alert("发送失败: " + error.message);
 
-    setMessage("");
+    } finally {
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/rag-chat",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
-        body: JSON.stringify({
-          question: currentMessage
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    setMessages(prev => [
-      ...prev,
-      {
-        role: "assistant",
-        content: data.answer
-      }
-    ]);
-
-    setSources(
-      data.sources || []
-    );
+      setLoading(false);
+    }
   };
 
   return (
 
-    <div
-      style={{
-        width: "1100px",
-        margin: "0 auto",
-        padding: "20px",
-        color: "white"
-      }}
-    >
+    <div style={styles.page}>
 
       <h1>
         Smart Knowledge Assistant
       </h1>
 
-      <select
-        value={role}
-        onChange={(e) =>
-          setRole(e.target.value)
-        }
-      >
-        <option value="unity">
-          Unity导师
-        </option>
+      <div style={styles.layout}>
 
-        <option value="cpp">
-          C++导师
-        </option>
+        {/* 左侧：会话管理 */}
+        <div style={styles.sidebar}>
 
-        <option value="ai">
-          AI全栈导师
-        </option>
+          <button
+            onClick={handleNewConversation}
+            style={{
+              width: "100%",
+              padding: "8px",
+              marginBottom: "10px"
+            }}
+          >
+            + 新建会话
+          </button>
 
-        <option value="digital">
-          数字孪生专家
-        </option>
-      </select>
-
-      <hr />
-
-      <input
-        type="file"
-        accept=".pdf"
-        onChange={(e) =>
-          setPdfFile(
-            e.target.files[0]
-          )
-        }
-      />
-
-      <button
-        onClick={uploadPdf}
-      >
-        上传PDF
-      </button>
-
-      <button
-        onClick={buildRag}
-        style={{
-          marginLeft: "10px"
-        }}
-      >
-        构建知识库
-      </button>
-
-      <p>
-        当前文件：
-        {
-          pdfFile
-            ? pdfFile.name
-            : "未选择"
-        }
-      </p>
-
-      <p>
-        状态：
-        {
-          knowledgeBuilt
-            ? "知识库已构建"
-            : "未构建"
-        }
-      </p>
-
-      <hr />
-
-      <div
-        style={{
-          border: "1px solid #666",
-          height: "500px",
-          overflowY: "auto",
-          padding: "10px"
-        }}
-      >
-
-        {
-          messages.map(
-            (
-              msg,
-              index
-            ) => (
+          {
+            conversations.map((conversation) => (
 
               <div
-                key={index}
+                key={conversation.id}
+                onClick={() =>
+                  setCurrentId(conversation.id)
+                }
                 style={{
-                  marginBottom:
-                    "15px",
-                  textAlign:
-                    msg.role ===
-                    "user"
-                      ? "right"
-                      : "left"
+                  ...styles.conversation,
+
+                  ...(conversation.id === currentId
+                    ? styles.conversationActive
+                    : {})
                 }}
               >
-                <b>
-                  {
-                    msg.role ===
-                    "user"
-                      ? "你"
-                      : "AI"
-                  }
-                </b>
 
-                <div>
-                  {
-                    msg.content
-                  }
+                <div style={styles.conversationTitle}>
+                  {conversation.title}
+
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "#999"
+                    }}
+                  >
+                    {conversation.message_count} 条消息
+                  </div>
                 </div>
 
+                <button
+                  onClick={(event) =>
+                    handleDeleteConversation(
+                      event,
+                      conversation.id
+                    )
+                  }
+                  title="删除会话"
+                >
+                  ×
+                </button>
+
               </div>
+            ))
+          }
+
+          {
+            conversations.length === 0 && (
+              <p style={{ color: "#888", fontSize: "13px" }}>
+                还没有会话，点击上方按钮开始
+              </p>
             )
-          )
-        }
+          }
+
+        </div>
+
+        {/* 右侧：聊天区 */}
+        <div style={styles.main}>
+
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            <option value="unity">Unity导师</option>
+            <option value="cpp">C++导师</option>
+            <option value="ai">AI全栈导师</option>
+            <option value="digital">数字孪生专家</option>
+          </select>
+
+          <span
+            style={{
+              marginLeft: "10px",
+              fontSize: "13px",
+              color: "#999"
+            }}
+          >
+            {
+              currentId === null
+                ? "未选择会话（发送时自动新建）"
+                : `当前会话 #${currentId}`
+            }
+          </span>
+
+          <hr />
+
+          {/* 知识库 */}
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={(e) => setPdfFile(e.target.files[0])}
+          />
+
+          <button onClick={handleUpload}>
+            上传PDF
+          </button>
+
+          <button
+            onClick={handleBuildRag}
+            style={{ marginLeft: "10px" }}
+          >
+            构建知识库
+          </button>
+
+          <span
+            style={{
+              marginLeft: "10px",
+              fontSize: "13px",
+              color: knowledgeBuilt ? "#7ddc7d" : "#999"
+            }}
+          >
+            {
+              knowledgeBuilt
+                ? "知识库已构建"
+                : "知识库未构建"
+            }
+          </span>
+
+          <hr />
+
+          {/* 消息列表 */}
+          <div
+            ref={messageBoxRef}
+            style={styles.messageBox}
+          >
+
+            {
+              messages.map((msg, index) => (
+
+                <div
+                  key={msg.id || index}
+                  style={{
+                    ...styles.bubble,
+                    textAlign:
+                      msg.role === "user"
+                        ? "right"
+                        : "left"
+                  }}
+                >
+
+                  <b>
+                    {msg.role === "user" ? "你" : "AI"}
+                  </b>
+
+                  <div style={{ whiteSpace: "pre-wrap" }}>
+                    {msg.content}
+                  </div>
+
+                  {/* 参考资料 */}
+                  {
+                    (msg.sources || []).map((source, i) => (
+
+                      <div
+                        key={i}
+                        style={{
+                          ...styles.source,
+                          display: "inline-block",
+                          textAlign: "left",
+                          maxWidth: "90%"
+                        }}
+                      >
+                        <b>来源 {i + 1}</b>
+                        <div>{source}</div>
+                      </div>
+                    ))
+                  }
+
+                </div>
+              ))
+            }
+
+          </div>
+
+          <br />
+
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSend("chat");
+            }}
+            placeholder="输入问题..."
+            style={{ width: "520px", padding: "10px" }}
+          />
+
+          <button
+            onClick={() => handleSend("chat")}
+            disabled={loading}
+            style={{ marginLeft: "10px" }}
+          >
+            {loading ? "生成中..." : "AI聊天"}
+          </button>
+
+          <button
+            onClick={() => handleSend("rag")}
+            disabled={loading}
+            style={{ marginLeft: "10px" }}
+          >
+            知识库问答
+          </button>
+
+        </div>
 
       </div>
-
-      <br />
-
-      <input
-        value={message}
-        onChange={(e) =>
-          setMessage(
-            e.target.value
-          )
-        }
-        style={{
-          width: "700px",
-          padding: "10px"
-        }}
-      />
-
-      <button
-        onClick={sendMessage}
-      >
-        AI聊天
-      </button>
-
-      <button
-        onClick={askKnowledge}
-        style={{
-          marginLeft: "10px"
-        }}
-      >
-        知识库问答
-      </button>
-
-      <hr />
-
-      <h3>
-        检索到的知识来源
-      </h3>
-
-      {
-        sources.map(
-          (
-            source,
-            index
-          ) => (
-
-            <div
-              key={index}
-              style={{
-                border:
-                  "1px solid #666",
-                padding: "10px",
-                marginBottom:
-                  "10px"
-              }}
-            >
-              <b>
-                Chunk
-                {index + 1}
-              </b>
-
-              <p>
-                {source}
-              </p>
-
-            </div>
-          )
-        )
-      }
 
     </div>
   );
