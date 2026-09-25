@@ -253,7 +253,7 @@ function Sidebar({
         {
           documents.length === 0 && (
             <div className="empty-hint">
-              还没有内容。用输入框左侧的按钮上传 PDF，
+              还没有内容。用输入框左侧的按钮上传 PDF / TXT / Markdown，
               或点上方「新建知识」手写一条
             </div>
           )

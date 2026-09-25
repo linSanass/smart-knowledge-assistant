@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 
 from services import document_service
+from services import file_service
 from services import rag_service
 
 from services.pdf_service import UPLOAD_DIR
@@ -25,7 +26,7 @@ router = APIRouter(
 
 
 # =========================
-# 上传 PDF
+# 上传文件
 # =========================
 
 @router.post(
@@ -38,7 +39,7 @@ async def upload_document(
     db: Session = Depends(get_db)
 ):
     """
-    上传 PDF 并立即返回。
+    上传知识文件（PDF / TXT / Markdown）并立即返回。
 
     解析 → 切分 → embedding → FAISS 全部交给后台任务，
     请求本身不等待这些耗时步骤。
@@ -46,21 +47,20 @@ async def upload_document(
 
     filename = file.filename or ""
 
-    if not filename.lower().endswith(".pdf"):
-
-        raise HTTPException(
-            status_code=400,
-            detail="只支持 PDF 文件"
-        )
-
     content = await file.read()
 
-    # 校验文件头，避免改了扩展名的假 PDF
-    if not content.startswith(b"%PDF"):
+    # 扩展名与内容双重校验：
+    # 拦掉不支持的后缀、改了后缀的假 PDF、以及伪装成文本的二进制文件
+    error = file_service.validate(
+        filename,
+        content
+    )
+
+    if error:
 
         raise HTTPException(
             status_code=400,
-            detail="文件内容不是合法的 PDF"
+            detail=error
         )
 
     file_path = document_service.save_upload(
@@ -94,7 +94,7 @@ async def upload_document(
 
 
 # =========================
-# PDF 列表
+# 知识条目列表
 # =========================
 
 @router.get("")

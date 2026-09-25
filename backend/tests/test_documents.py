@@ -217,14 +217,18 @@ def main():
         # 3. 非法文件
         # =========================
 
+        # 原本这里断言 note.txt 被拒（当时只支持 PDF）。
+        # TXT 现在是受支持的格式，那条断言已经不成立，
+        # 换成「不支持的扩展名」继续守住入口校验
+
         resp = client.post(
             "/documents",
             files={
-                "file": ("note.txt", b"hello", "text/plain")
+                "file": ("note.docx", b"hello", "application/octet-stream")
             }
         )
 
-        assert resp.status_code == 400
+        assert resp.status_code == 400, "不支持的扩展名未被拦截"
 
         resp = client.post(
             "/documents",
@@ -235,7 +239,18 @@ def main():
 
         assert resp.status_code == 400, "假 PDF 未被拦截"
 
-        print("[OK] 非 PDF / 假 PDF 被拒绝")
+        # TXT / Markdown 没有魔数可校验，
+        # 用含 NUL 字节来识别伪装成文本的二进制内容
+        resp = client.post(
+            "/documents",
+            files={
+                "file": ("fake.txt", b"\x00\x01\x02binary", "text/plain")
+            }
+        )
+
+        assert resp.status_code == 400, "伪装成 txt 的二进制未被拦截"
+
+        print("[OK] 不支持的扩展名 / 假 PDF / 二进制内容 均被拒绝")
 
         # =========================
         # 4. 构建索引

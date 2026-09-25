@@ -5,10 +5,17 @@ from uuid import uuid4
 from models import Document
 
 # 通过模块引用 UPLOAD_DIR，方便测试时替换上传目录
+from services import file_service
+
 from services import pdf_service
 
 
-# 知识条目的两种类型
+# 知识条目的两种类型。
+#
+# KIND_PDF 这个值现在覆盖「文件类条目」：PDF / TXT / Markdown 都是它。
+# 值沿用 "pdf" 而没有改成 "file"，是因为存量数据已经是 "pdf"，
+# 而轻量迁移只能加列、改不了列默认值，强行改值要额外做一次数据迁移；
+# 它在本项目里只用于区分「文件」与「手写笔记」，所以不影响行为。
 KIND_PDF = "pdf"
 
 KIND_NOTE = "note"
@@ -18,7 +25,7 @@ def is_note(document):
     """
     是不是手写知识。
 
-    老数据没有 kind（迁移前写入的行），一律当 PDF 处理。
+    老数据没有 kind（迁移前写入的行），一律当文件处理。
     """
 
     return (document.kind or KIND_PDF) == KIND_NOTE
@@ -323,14 +330,14 @@ def delete_document(db, document_id):
 
 def sync_documents(db):
     """
-    把 uploads 目录里还没登记进数据库的 PDF 补登记。
+    把 uploads 目录里还没登记进数据库的受支持文件补登记。
 
-    这样历史遗留的上传文件也能被多文档索引覆盖到。
+    这样历史遗留的上传文件也能被索引覆盖到。
     """
 
     created = []
 
-    for filename in pdf_service.list_pdf_files():
+    for filename in file_service.list_supported_files():
 
         # 按落盘路径去重，避免重名文件被重复登记
         file_path = os.path.join(

@@ -17,6 +17,8 @@ from database import get_db, init_db
 
 from services import document_service
 
+from services import file_service
+
 from services.chat_service import (
     chat,
     clear_history,
@@ -78,7 +80,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Smart Knowledge Assistant",
-    description="PDF RAG 知识库问答后端",
+    description="RAG 知识库问答后端（PDF / TXT / Markdown）",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -201,7 +203,7 @@ def clear():
 
 
 # =========================
-# 上传 PDF
+# 上传文件（旧接口）
 # =========================
 
 @app.post("/upload")
@@ -212,11 +214,24 @@ async def upload_pdf(
     """
     保留的旧上传接口。
 
-    为了和多文档知识库保持一致，这里同样会把文件登记进 documents 表。
+    为了和多文档知识库保持一致，这里同样会把文件登记进 documents 表，
+    并做和 POST /documents 一样的格式校验。
     新代码请使用 POST /documents。
     """
 
     content = await file.read()
+
+    error = file_service.validate(
+        file.filename or "",
+        content
+    )
+
+    if error:
+
+        raise HTTPException(
+            status_code=400,
+            detail=error
+        )
 
     file_path = document_service.save_upload(
         content,

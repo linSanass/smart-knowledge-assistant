@@ -4,12 +4,11 @@ from services import cache_service
 
 from services import document_service
 
+from services import file_service
+
 from services import prompts
 
-from services.pdf_service import (
-    read_pdf_file,
-    split_text
-)
+from services.pdf_service import split_text
 
 from sentence_transformers import (
     SentenceTransformer
@@ -227,7 +226,7 @@ def _cleanup_processing():
 
 def build_vector_store():
     """
-    对 uploads 下所有已登记的 PDF 建立统一索引。
+    对 uploads 下所有已登记的文件与笔记建立统一索引。
 
     构建过程中先写入局部变量，全部成功后再替换全局索引，
     避免中途失败把旧索引破坏掉。
@@ -240,7 +239,7 @@ def build_vector_store():
 
     try:
 
-        # 0. 补登记 uploads 里遗漏的 PDF
+        # 0. 补登记 uploads 里遗漏的文件
         document_service.sync_documents(db)
 
         documents = document_service.list_documents(db)
@@ -257,7 +256,7 @@ def build_vector_store():
             cache_service.invalidate()
 
             return {
-                "message": "没有可用的 PDF，请先上传",
+                "message": "没有可用的文件，请先上传",
                 "chunk_count": 0,
                 "documents": 0
             }
@@ -292,7 +291,10 @@ def build_vector_store():
 
                 else:
 
-                    text = read_pdf_file(
+                    # 按扩展名取文本：PDF 走 pypdf，
+                    # TXT / Markdown 按文本读。格式判断收在 file_service 里，
+                    # 切分、embedding、FAISS、检索都不关心是哪种文件
+                    text = file_service.extract_text(
                         document.file_path
                     )
 
@@ -347,7 +349,7 @@ def build_vector_store():
             cache_service.invalidate()
 
             return {
-                "message": "所有 PDF 解析失败",
+                "message": "所有文件解析失败",
                 "chunk_count": 0,
                 "documents": len(documents),
                 "failed": failed

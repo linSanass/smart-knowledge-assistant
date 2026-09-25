@@ -1,6 +1,6 @@
 # Smart Knowledge Assistant
 
-一个可运行、可解释的 AI 全栈项目：上传 PDF 构建个人知识库，然后基于 RAG 问答，
+一个可运行、可解释的 AI 全栈项目：上传 PDF / TXT / Markdown 构建个人知识库，然后基于 RAG 问答，
 并支持 Function Calling 与分步 Agent。
 
 不只是「调通一个接口」：检索结果带来源引用、会话与消息落库、知识库构建异步化、
@@ -39,7 +39,10 @@
 
 ### 知识库（RAG）
 
-- 上传 PDF（校验扩展名 **和** 文件头，拦截改了后缀的假 PDF）
+- 支持 **PDF / TXT / Markdown** 三种格式，统一进同一个知识库
+  - PDF 校验扩展名 **和** 文件头，拦截改了后缀的假 PDF
+  - TXT / Markdown 没有魔数，用「是否含 NUL 字节」识别伪装成文本的二进制文件
+  - 文本按 UTF-8 → GBK 的顺序尝试解码，中文环境的旧 TXT 也能读
 - 多文档统一索引，支持列表 / 删除
 - **每个 chunk 可回溯来源**：命中结果带 `filename` + `chunk_index` + `document_id`
 - **异步构建**：上传后立即返回 202，解析 / 切分 / embedding / FAISS 全部在后台跑，
@@ -317,7 +320,7 @@ docker compose down -v            # 停止并清空数据库
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/documents` | 上传 PDF，**返回 202** 并排队后台构建 |
+| `POST` | `/documents` | 上传文件（`.pdf` / `.txt` / `.md`），**返回 202** 并排队后台构建 |
 | `GET` | `/documents` | 知识条目列表：PDF 与手写知识统一返回，带 `kind` / `size` / `status` |
 | `GET` | `/documents/status` | 索引状态与构建进度，**前端轮询此接口** |
 | `DELETE` | `/documents/{id}` | 删除任意知识条目，返回 `index_rebuild_scheduled` |
@@ -375,7 +378,7 @@ docker compose down -v            # 停止并清空数据库
 
 ## 测试
 
-11 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
+12 个测试文件，都是可直接运行的脚本（不依赖 pytest）：
 
 ```bash
 cd backend
@@ -390,6 +393,7 @@ python tests/test_cache.py
 | `test_conversations.py` | 多轮上下文、参数校验 | 是 |
 | `test_documents.py` | 多文档上传、索引、来源追踪、删除重建 | 是 |
 | `test_notes.py` | 手写知识：新建→可检索、编辑→旧内容移出索引、删除、统一列表 | 否 |
+| `test_file_formats.py` | PDF / TXT / Markdown 各自上传并检索、GBK 编码、非法格式被拒 | 否 |
 | `test_async_documents.py` | 异步构建：非阻塞、409 互斥、不丢上传、崩溃恢复、坏 PDF 隔离 | 否 |
 | `test_cache.py` | 缓存命中/失效、TTL、Redis 降级 | 否 |
 | `test_tools.py` | 工具单元：calculator 白名单求值、注册表、错误处理 | 否 |
@@ -403,7 +407,7 @@ python tests/test_cache.py
 `httpx.ASGITransport` + `threading.Event` 闸门把构建冻住，
 用**事件**而不是 `sleep` 来断言构建期间 HTTP 仍可响应。
 
-CI 只跑不依赖 DeepSeek 的四个（`test_cache` / `test_async_documents` / `test_tools` / `test_notes`），
+CI 只跑不依赖 DeepSeek 的五个（`test_cache` / `test_async_documents` / `test_tools` / `test_notes` / `test_file_formats`），
 避免每次 push 都消耗 API 额度。端到端部分被拆到单独文件正是为了这个：
 `test_tools_endpoint.py` 需要真实的模型调用，所以不进 CI。
 

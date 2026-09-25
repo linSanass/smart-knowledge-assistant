@@ -51,7 +51,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "knowledge_search",
             "description": (
-                "在用户上传的 PDF 知识库中检索相关片段。"
+                "在用户上传的知识库（PDF / TXT / Markdown）中检索相关片段。"
                 "当问题涉及知识库内容时使用。"
             ),
             "parameters": {

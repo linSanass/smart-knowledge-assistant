@@ -107,7 +107,7 @@ function Composer({
           className="composer-input"
           rows={1}
           value={value}
-          placeholder="问点什么，或上传 PDF 建立知识库…"
+          placeholder="问点什么，或上传 PDF / TXT / Markdown 建立知识库…"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
         />
@@ -117,7 +117,7 @@ function Composer({
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf"
+            accept=".pdf,.txt,.md"
             multiple
             hidden
             onChange={(event) => {
@@ -134,7 +134,7 @@ function Composer({
           <button
             type="button"
             className="btn btn-icon"
-            title="上传 PDF"
+            title="上传 PDF / TXT / Markdown"
             disabled={uploading}
             onClick={() => fileRef.current?.click()}
           >

@@ -33,7 +33,7 @@ function EmptyState({ hasIndex, onSuggestion }) {
         "这份文档适合谁看？"
       ]
     : [
-        "上传 PDF 后，我就能基于它回答问题",
+        "上传 PDF / TXT / Markdown 后，我就能基于它回答问题",
         "没有知识库也可以直接提问",
         "解释一下什么是 RAG",
         "用表格对比几个常见的技术概念"
@@ -55,7 +55,7 @@ function EmptyState({ hasIndex, onSuggestion }) {
           {
             hasIndex
               ? "提问会基于你的知识库回答，并在底部给出来源"
-              : "上传 PDF 建立知识库，或直接提问"
+              : "上传 PDF / TXT / Markdown 建立知识库，或直接提问"
           }
         </p>
 

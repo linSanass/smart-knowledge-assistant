@@ -25,7 +25,7 @@ AGENT_SYSTEM_PROMPT = """你是一个会分步使用工具的 Agent。
 
 可用工具：
 - calculator：数学计算，不要自己心算
-- knowledge_search：检索用户上传的 PDF 知识库
+- knowledge_search：检索用户上传的知识库
 - current_time：获取当前日期时间
 
 约束：

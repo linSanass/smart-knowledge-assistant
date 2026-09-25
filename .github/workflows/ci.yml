@@ -93,6 +93,7 @@ jobs:
           python tests/test_async_documents.py
           python tests/test_tools.py
           python tests/test_notes.py
+          python tests/test_file_formats.py
 
   # =========================
   # 前端

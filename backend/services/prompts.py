@@ -33,7 +33,7 @@ RAG_SYSTEM_PROMPT = """你是一名严谨的知识库问答助手。
 
 NO_CONTEXT_ANSWER = "知识库中没有找到相关信息。"
 
-EMPTY_KB_ANSWER = "知识库为空，请先上传 PDF 并构建知识库。"
+EMPTY_KB_ANSWER = "知识库为空，请先上传文件并构建知识库。"
 
 
 # =========================
