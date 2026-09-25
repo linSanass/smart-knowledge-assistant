@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Node.js
+node_modules/
+
+# React Build
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
